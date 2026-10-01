@@ -76,11 +76,17 @@
         .lead {
             display: flex;
             align-items: flex-start;
-            gap: 14px;
+            gap: var(--mark-gap);
             margin: 0 0 22px;
         }
-        .lead svg { width: 28px; height: 28px; flex: none; margin-top: 2px; }
-        .lead h2 { margin: 0; font-size: 28px; }
+        .lead svg {
+            display: block;
+            width: var(--mark);
+            height: var(--mark);
+            flex: none;
+            margin-top: calc((var(--title-line) - var(--mark)) / 2);
+        }
+        .lead h2 { margin: 0; font-size: 28px; line-height: var(--title-line); }
         .lead p { margin: 6px 0 0; color: var(--muted); font-size: 15px; max-width: 62ch; }
         footer {
             max-width: 1120px;
@@ -101,7 +107,14 @@
             transition: border-color 180ms var(--ease);
         }
         footer a:hover { border-bottom-color: var(--ink); }
-        main { max-width: 1120px; margin: 0 auto; padding: 32px 32px 80px; }
+        main {
+            --mark: 22px;
+            --mark-gap: 12px;
+            --title-line: 28px;
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 32px 32px 80px;
+        }
         .enter { animation: rise 420ms var(--ease); }
         @keyframes rise {
             from { opacity: 0; transform: translateY(8px); }
@@ -114,12 +127,14 @@
         }
         .hero {
             display: grid;
-            grid-template-columns: 1.4fr 1.3fr 0.8fr 0.9fr;
-            gap: 8px;
+            grid-template-columns: minmax(0, 1.15fr) auto minmax(0, 0.7fr) minmax(0, 0.85fr);
+            gap: 8px 40px;
+            align-items: start;
             padding: 28px;
             background: var(--field);
             border-radius: 8px;
         }
+        .limit-row { display: flex; gap: 36px; align-items: flex-start; }
         .k { color: var(--muted); font-size: 13px; }
         .display {
             display: block;
@@ -141,12 +156,15 @@
             font-variant-numeric: tabular-nums;
         }
         .meter {
+            width: 128px;
             height: 4px;
             margin-top: 14px;
             background: var(--line);
             border-radius: 999px;
             overflow: hidden;
         }
+        .limit-row > div:last-child .pct { margin-top: 26px; white-space: nowrap; }
+        .limit-row .pct { white-space: nowrap; }
         .meter i {
             display: block;
             height: 100%;
@@ -244,47 +262,131 @@
         }
         .day.today span { color: var(--ink); }
         .note { margin: 20px 0 0; max-width: 68ch; color: var(--muted); font-size: 13px; line-height: 1.55; }
-        .graphs { display: grid; gap: 16px; margin-top: 8px; }
+        .graphs {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 8px;
+        }
         .graph-card {
-            padding: 20px 20px 12px;
+            min-width: 0;
+            padding: 18px 18px 14px;
             border: 1px solid var(--line);
             border-radius: 8px;
         }
-        .graph-card h2 { margin: 0; }
-        .graph { width: 100%; height: auto; display: block; margin-top: 12px; }
-        .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 12px; }
-        .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
+        .graph-card h2 { margin: 0; font-size: 16px; }
+        .plot {
+            display: flex;
+            align-items: flex-end;
+            justify-content: safe center;
+            gap: 6px;
+            height: 220px;
+            margin-top: 18px;
+            border-bottom: 1px solid var(--line);
+            overflow-x: auto;
+        }
+        .col {
+            appearance: none;
+            flex: 1 1 0;
+            width: auto;
+            min-width: 22px;
+            max-width: 64px;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            cursor: pointer;
+            color: inherit;
+            font: inherit;
+        }
+        .plot[data-span="short"] .col { flex: none; width: 72px; max-width: 72px; }
+        .plot[data-span="short"] .bar { width: 36px; }
+        .bar {
+            display: flex;
+            flex-direction: column-reverse;
+            width: min(32px, 72%);
+            height: 0;
+            border-radius: 4px 4px 0 0;
+            background: var(--blue);
+            transform-origin: bottom;
+            transition: height 480ms var(--ease);
+        }
+        .bar.stack { background: transparent; gap: 1px; }
+        .bar i { display: block; width: 100%; min-height: 0; border-radius: 1px; transition: height 480ms var(--ease); }
+        .xlabel {
+            margin-top: 8px;
+            color: var(--faint);
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }
+        .col.on .xlabel, .col:hover .xlabel, .col:focus-visible .xlabel { color: var(--ink); }
+        .col.on .bar, .col:hover .bar { filter: brightness(0.92); }
+        .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+        .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
         .legend .fresh { background: #225bff; }
         .legend .read { background: #8aa4ff; }
         .legend .write { background: #c4a15a; }
         .legend .out { background: var(--ink); }
-        .readout { min-height: 1.4em; margin: 8px 0 0; color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+        .readout { display: none; }
+        .tip {
+            position: fixed;
+            z-index: 30;
+            left: 0;
+            top: 0;
+            max-width: 220px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: #15110c;
+            color: #f7f4ee;
+            font-size: 12px;
+            line-height: 1.45;
+            white-space: pre-line;
+            font-variant-numeric: tabular-nums;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 80ms linear;
+        }
+        .tip.show { opacity: 1; }
+        #view-models { width: min(100%, 34rem); margin-inline: auto; }
+        #view-models .lead p { max-width: none; }
         .routes { display: grid; gap: 8px; margin-top: 16px; }
+        #view-models .routes,
+        #view-models .actions,
+        #view-models .confirm,
+        #view-models .notice { margin-left: calc(var(--mark) + var(--mark-gap)); }
         .route {
-            display: grid;
-            grid-template-columns: minmax(160px, 220px) 36px minmax(180px, 280px);
-            gap: 12px;
+            display: flex;
             align-items: center;
-            padding: 16px 18px;
+            gap: 12px;
+            padding: 10px 12px;
             border: 1px solid var(--line);
             border-radius: 8px;
+            width: 100%;
             background: var(--bg);
-            transition: border-color 180ms var(--ease), transform 180ms var(--ease);
+            transition: border-color 180ms var(--ease);
             animation: rise 420ms var(--ease) both;
         }
-        .route:hover { border-color: #c5ccd1; transform: translateY(-1px); }
-        .route .arrow { width: 28px; height: 16px; color: var(--blue); }
+        .route:hover { border-color: #c5ccd1; }
+        .route .who { flex: none; min-width: 148px; }
+        .route .arrow { width: 28px; height: 16px; color: var(--blue); flex: none; }
+        .route strong, .route span { display: block; white-space: nowrap; }
         .route strong { font-weight: 600; letter-spacing: -0.02em; }
-        .route span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+        .route span { color: var(--muted); font-size: 12px; margin-top: 2px; }
         select {
             appearance: none;
-            width: 100%;
-            justify-self: stretch;
+            width: 210px;
+            margin-left: auto;
+            flex: none;
             background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 L6 6.5 L11 1.5' fill='none' stroke='%2315110c' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center;
             color: var(--ink);
             border: 1px solid var(--line);
             border-radius: 999px;
-            padding: 12px 36px 12px 16px;
+            padding: 10px 36px 10px 14px;
             font: 15px/1 var(--sans);
             cursor: pointer;
             transition: border-color 180ms var(--ease);
@@ -309,7 +411,7 @@
         }
         .confirm p, .notice p { margin: 0 0 12px; }
         @media (prefers-reduced-motion: reduce) {
-            .enter, .tick, .meter i, .day b, tbody tr, .route, nav button, footer a { animation: none; transition: none; }
+            .enter, .tick, .meter i, .day b, .bar, .bar i, tbody tr, .route, nav button, footer a { animation: none; transition: none; }
         }
         @media (prefers-reduced-motion: no-preference) {
             .meter i, .day b { transition: width 520ms var(--ease), height 520ms var(--ease); }
@@ -318,8 +420,11 @@
             header, main, footer { padding-left: 16px; padding-right: 16px; }
             header { grid-template-columns: 1fr; justify-items: center; gap: 12px; }
             .when { display: none; }
-            .hero, .split, .route { grid-template-columns: 1fr; }
-            .route .arrow { transform: rotate(90deg); }
+            .hero, .split, .graphs { grid-template-columns: 1fr; }
+            .limit-row { flex-wrap: wrap; }
+            .limit-row > div:last-child .pct { margin-top: 8px; }
+            .route { flex-wrap: wrap; }
+            select { width: 100%; margin-left: 0; }
             .display, .figure { font-size: 32px; }
         }
     </style>
@@ -338,7 +443,7 @@
     <main>
         <section id="view-requests" class="enter">
             <div class="lead">
-                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M6 8h16M6 14h16M6 20h10" stroke="#15110c" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M6 6h16M6 14h16M6 22h11" stroke="#15110c" stroke-width="1.75" stroke-linecap="round"/></svg>
                 <div>
                     <h2>Requests</h2>
                     <p>Each call Claude Code sent through this proxy.</p>
@@ -349,11 +454,20 @@
                     <div class="k">Tokens today</div>
                     <strong class="display" id="tokens">0</strong>
                 </article>
-                <article>
-                    <div class="k">Daily ceiling</div>
-                    <strong class="v" id="ceiling">0</strong>
-                    <div class="meter"><i id="bar"></i></div>
-                    <div class="pct" id="pct"></div>
+                <article class="limit">
+                    <div class="limit-row">
+                        <div>
+                            <div class="k">Daily ceiling</div>
+                            <strong class="v" id="ceiling">0</strong>
+                            <div class="meter" title="Tokens today divided by the daily ceiling"><i id="bar"></i></div>
+                            <div class="pct" id="pct"></div>
+                        </div>
+                        <div>
+                            <div class="k" title="Input Foundry served from cache. Already included in Tokens today.">Cache reads</div>
+                            <strong class="v" id="cached-today">0</strong>
+                            <div class="pct" id="cached-share"></div>
+                        </div>
+                    </div>
                 </article>
                 <article>
                     <div class="k">Requests today</div>
@@ -371,9 +485,9 @@
                             <th>Time</th>
                             <th>Model</th>
                             <th>Deployment</th>
-                            <th class="num">Fresh</th>
-                            <th class="num">Read</th>
-                            <th class="num">Write</th>
+                            <th class="num" title="Input not served from cache.">Fresh</th>
+                            <th class="num" title="Input Foundry served from cache. Included in Total.">Cached</th>
+                            <th class="num" title="Input stored in the cache on this call. Included in Total.">Cache write</th>
                             <th class="num">Out</th>
                             <th class="num" title="Included in Out. Billed as output.">Reason</th>
                             <th class="num" title="Azure total_tokens. This is what the daily ceiling counts.">Total</th>
@@ -389,10 +503,10 @@
         </section>
         <section id="view-graphs" hidden>
             <div class="lead">
-                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M5 20 V8M5 20 H23" stroke="#15110c" stroke-width="1.6" stroke-linecap="round"/><path d="M8 16l4-5 4 3 5-7" stroke="#225BFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M6 22V6M6 22H22" stroke="#15110c" stroke-width="1.75" stroke-linecap="round"/><path d="M9 17l4-6 4 3 5-8" stroke="#225BFF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <div>
                     <h2>Graphs</h2>
-                    <p>The same UTC month, drawn as requests, tokens, and estimated cost.</p>
+                    <p>Days from the 1st through today. Later days appear when they happen. Hover a bar for that day’s numbers.</p>
                 </div>
             </div>
             <div class="graphs">
@@ -405,8 +519,8 @@
                     <div id="graph-tokens"></div>
                     <div class="legend">
                         <span><i class="fresh"></i>Fresh</span>
-                        <span><i class="read"></i>Read</span>
-                        <span><i class="write"></i>Write</span>
+                        <span><i class="read"></i>Cached</span>
+                        <span><i class="write"></i>Cache write</span>
                         <span><i class="out"></i>Out</span>
                     </div>
                 </article>
@@ -416,11 +530,11 @@
                 </article>
             </div>
             <p class="readout" id="graph-readout">Hover a day.</p>
-            <p class="note">Each mark is one UTC day, from the 1st through the end of the month. Future days are empty. Token bars stack fresh input, cache read, cache write, and output. Cost uses the same estimate as the Cost tab.</p>
+            <p class="note">Token bars stack fresh input, cache read, cache write, and output. Cost uses the same estimate as the Cost tab. Days are UTC.</p>
         </section>
         <section id="view-models" hidden>
             <div class="lead">
-                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="3" y="7" width="8" height="14" rx="2" stroke="#15110c" stroke-width="1.6"/><path d="M13 14h6M17 11l3 3-3 3" stroke="#225BFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="17" y="7" width="8" height="14" rx="2" stroke="#15110c" stroke-width="1.6"/></svg>
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="4" y="6" width="7" height="16" rx="1.5" stroke="#15110c" stroke-width="1.75"/><path d="M13 14h5M16.2 11.2 19 14l-2.8 2.8" stroke="#225BFF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><rect x="17" y="6" width="7" height="16" rx="1.5" stroke="#15110c" stroke-width="1.75"/></svg>
                 <div>
                     <h2>Choose a model</h2>
                     <p>These four are the models in Claude Code’s picker. Choose which Foundry deployment answers each one. Deploy that model in your Foundry project first. A name that is not deployed will fail the next request. The proxy does not create deployments.</p>
@@ -441,7 +555,7 @@
         </section>
         <section id="view-cost" hidden>
             <div class="lead">
-                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><circle cx="14" cy="14" r="8" stroke="#15110c" stroke-width="1.6"/><path d="M14 10v8M11.5 12.2c.6-.8 1.4-1.2 2.5-1.2 1.4 0 2.3.7 2.3 1.7 0 2.2-4.8.9-4.8 3.1 0 1 .9 1.7 2.4 1.7 1.1 0 2-.4 2.6-1.2" stroke="#225BFF" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><circle cx="14" cy="14" r="8" stroke="#15110c" stroke-width="1.75"/><path d="M14 9.5v9M11.4 12c.6-.9 1.5-1.3 2.6-1.3 1.5 0 2.4.8 2.4 1.8 0 2.3-5 .9-5 3.2 0 1 .9 1.8 2.5 1.8 1.1 0 2.1-.5 2.7-1.3" stroke="#225BFF" stroke-width="1.75" stroke-linecap="round"/></svg>
                 <div>
                     <h2>Cost</h2>
                     <p>Estimated USD for today and for the month, from the 1st.</p>
@@ -470,8 +584,8 @@
                             <th>Lane</th>
                             <th class="num">Calls</th>
                             <th class="num">Fresh</th>
-                            <th class="num">Read</th>
-                            <th class="num">Write</th>
+                            <th class="num">Cached</th>
+                            <th class="num">Cache write</th>
                             <th class="num">Out</th>
                             <th class="num">Reason</th>
                             <th class="num">USD</th>
@@ -500,6 +614,7 @@
             <p class="note">USD per 1,000,000 tokens, OpenAI Standard card. Azure Global Standard for gpt-6-luna matches it. This is not the Azure invoice: Data Zone, tax, and currency conversion are omitted. Above 272,000 input tokens, the long rate covers the whole request. A cache-write token is charged at the write rate instead of the fresh-input rate. Reasoning tokens are already inside output and are not added again. Requests logged before write tracking are priced as fresh input. Days and the month are UTC, from the 1st through today. Request clocks on the other tab use this computer’s local time.            </p>
         </section>
     </main>
+    <div class="tip" id="tip" role="tooltip"></div>
     <footer>
         <p>Made by <a href="https://github.com/dimension-drifter">Deepam Tater</a>. This page is the local proxy that lets Claude Code call the GPT models in your Foundry project.</p>
     </footer>
@@ -519,6 +634,10 @@
 
         function fmt(n) {
             return Number(n || 0).toLocaleString();
+        }
+        function percent(part, whole) {
+            const ratio = (Number(part) / Number(whole)) * 100;
+            return (ratio < 10 ? ratio.toFixed(1) : String(Math.round(ratio))) + '%';
         }
         function when(iso) {
             const date = new Date(iso);
@@ -583,8 +702,8 @@
             return [
                 fmt(statement.requests) + ' billed',
                 'fresh ' + fmt(statement.fresh),
-                'read ' + fmt(statement.cached),
-                'write ' + fmt(statement.write),
+                'cached ' + fmt(statement.cached),
+                'cache write ' + fmt(statement.write),
                 'out ' + fmt(statement.output),
                 'reasoning ' + fmt(statement.reasoning)
             ].join(' · ') + share;
@@ -601,7 +720,24 @@
             visible.classList.remove('enter');
             void visible.offsetWidth;
             visible.classList.add('enter');
+            $('tip').classList.remove('show');
             try { sessionStorage.setItem('azure-proxy-tab', name); } catch { /* private mode */ }
+        }
+
+        function placeTip(event, copy) {
+            const node = $('tip');
+            if (node.textContent !== copy) node.textContent = copy;
+            node.classList.add('show');
+            const gap = 16;
+            node.style.left = '0px';
+            node.style.top = '0px';
+            const box = node.getBoundingClientRect();
+            let x = event.clientX + gap;
+            let y = event.clientY + gap;
+            if (x + box.width > window.innerWidth - 8) x = event.clientX - box.width - gap;
+            if (y + box.height > window.innerHeight - 8) y = event.clientY - box.height - gap;
+            node.style.left = Math.max(8, x) + 'px';
+            node.style.top = Math.max(8, y) + 'px';
         }
 
         function renderRequests(data) {
@@ -610,13 +746,16 @@
             const dayRows = requests.filter((row) => String(row.at || '').slice(0, 10) === today.day);
             text('tokens', fmt(today.totalTokens));
             text('ceiling', today.ceiling ? fmt(today.ceiling) : 'none');
+            const cachedToday = Number(data.cost && data.cost.today ? data.cost.today.cached : 0);
+            text('cached-today', fmt(cachedToday));
             text('count', fmt(dayRows.length));
             text('last', requests[0] ? when(requests[0].at) : '—');
             const used = Number(today.totalTokens || 0);
             const cap = Number(today.ceiling || 0);
             const ratio = cap ? Math.min(100, (used / cap) * 100) : 0;
             $('bar').style.width = ratio + '%';
-            text('pct', cap ? (ratio < 10 ? ratio.toFixed(1) : String(Math.round(ratio))) + '% of ceiling' : '');
+            text('pct', cap ? percent(used, cap) + ' of ceiling' : '');
+            text('cached-share', used ? percent(cachedToday, used) + ' of tokens today' : '');
             text('when', today.day ? shortDate(today.day) + ' UTC' : 'UTC');
             const sig = requests.map((row) => [row.id, row.status, row.totalTokens, row.cachedTokens, row.outputTokens].join(':')).join('|');
             if (sig === requestSig) return;
@@ -736,118 +875,95 @@
 
         function renderGraphs(cost) {
             if (!cost || !Array.isArray(cost.days)) return;
-            const sig = cost.days.map((day) => [day.day, day.requests, day.totalTokens, day.micros, day.fresh, day.cached, day.write, day.output].join(':')).join('|');
-            if (sig === renderGraphs.sig) return;
-            renderGraphs.sig = sig;
-            drawBars($('graph-requests'), cost.days, 'requests');
-            drawStack($('graph-tokens'), cost.days);
-            drawArea($('graph-cost'), cost.days);
+            const days = cost.days.filter((day) => day.day <= cost.day);
+            drawSeries($('graph-requests'), days, (day) => [{ value: Number(day.requests) || 0, color: '#225BFF' }], (day) => shortDate(day.day) + '\n' + fmt(day.requests) + ' requests');
+            drawSeries($('graph-tokens'), days, (day) => [
+                { value: Number(day.output) || 0, color: '#15110C' },
+                { value: Number(day.write) || 0, color: '#C4A15A' },
+                { value: Number(day.cached) || 0, color: '#8AA4FF' },
+                { value: Number(day.fresh) || 0, color: '#225BFF' }
+            ], (day) => shortDate(day.day) + '\nFresh ' + fmt(day.fresh) + '\nCached ' + fmt(day.cached) + '\nCache write ' + fmt(day.write) + '\nOut ' + fmt(day.output));
+            drawSeries($('graph-cost'), days, (day) => [{ value: Number(day.micros) || 0, color: '#225BFF' }], (day) => shortDate(day.day) + '\n$' + day.usd);
         }
 
-        function drawBars(host, days, key) {
-            const max = Math.max(1, ...days.map((day) => Number(day[key]) || 0));
-            host.replaceChildren(frame(days, (day, slot, x, innerH, padT) => {
-                const value = Number(day[key]) || 0;
-                const h = (value / max) * innerH;
-                return [rect(x + 3, padT + innerH - h, Math.max(slot - 6, 2), h, 'var(--blue)')];
-            }, (day) => `${dayNumber(day.day)}  ${fmt(day.requests)} requests`));
-        }
-
-        function drawStack(host, days) {
-            const parts = [
-                ['fresh', '#225BFF'],
-                ['cached', '#8AA4FF'],
-                ['write', '#C4A15A'],
-                ['output', 'currentColor']
-            ];
-            const max = Math.max(1, ...days.map((day) => parts.reduce((sum, [name]) => sum + (Number(day[name]) || 0), 0)));
-            host.replaceChildren(frame(days, (day, slot, x, innerH, padT) => {
-                let y = padT + innerH;
-                const nodes = [];
-                for (const [name, color] of parts) {
-                    const h = ((Number(day[name]) || 0) / max) * innerH;
-                    y -= h;
-                    if (h > 0) nodes.push(rect(x + 3, y, Math.max(slot - 6, 2), h, color));
-                }
-                return nodes;
-            }, (day) => `${dayNumber(day.day)}  fresh ${fmt(day.fresh)}  read ${fmt(day.cached)}  write ${fmt(day.write)}  out ${fmt(day.output)}`));
-        }
-
-        function drawArea(host, days) {
-            const max = Math.max(1, ...days.map((day) => Number(day.micros) || 0));
-            host.replaceChildren(frame(days, (day, slot, x, innerH, padT, width) => {
-                return [];
-            }, (day) => `${dayNumber(day.day)}  $${day.usd}`, (svg, geom) => {
-                const ns = 'http://www.w3.org/2000/svg';
-                const pts = days.map((day, i) => {
-                    const x = geom.padL + geom.slot * i + geom.slot / 2;
-                    const y = geom.padT + geom.innerH - ((Number(day.micros) || 0) / max) * geom.innerH;
-                    return [x, y];
+        function drawSeries(host, days, partsOf, label) {
+            const totals = days.map((day) => partsOf(day).reduce((sum, part) => sum + part.value, 0));
+            const max = Math.max(1, ...totals);
+            let plot = host.querySelector('.plot');
+            if (!plot || plot.childElementCount !== days.length) {
+                plot = document.createElement('div');
+                plot.className = 'plot';
+                host.replaceChildren(plot);
+                days.forEach(() => {
+                    const col = document.createElement('button');
+                    col.type = 'button';
+                    col.className = 'col';
+                    const bar = document.createElement('span');
+                    bar.className = 'bar';
+                    const name = document.createElement('span');
+                    name.className = 'xlabel';
+                    col.append(bar, name);
+                    plot.appendChild(col);
                 });
-                if (pts.length === 0) return;
-                const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-                const area = `${line} L${pts[pts.length - 1][0].toFixed(1)} ${(geom.padT + geom.innerH).toFixed(1)} L${pts[0][0].toFixed(1)} ${(geom.padT + geom.innerH).toFixed(1)} Z`;
-                const fill = document.createElementNS(ns, 'path');
-                fill.setAttribute('d', area);
-                fill.setAttribute('fill', '#225BFF');
-                fill.setAttribute('opacity', '0.16');
-                const stroke = document.createElementNS(ns, 'path');
-                stroke.setAttribute('d', line);
-                stroke.setAttribute('fill', 'none');
-                stroke.setAttribute('stroke', '#225BFF');
-                stroke.setAttribute('stroke-width', '2');
-                svg.insertBefore(fill, svg.firstChild);
-                svg.insertBefore(stroke, svg.firstChild.nextSibling);
-            }));
-        }
-
-        function frame(days, columns, label, extra) {
-            const ns = 'http://www.w3.org/2000/svg';
-            const W = 720;
-            const H = 168;
-            const padL = 4;
-            const padR = 4;
-            const padT = 8;
-            const padB = 4;
-            const innerH = H - padT - padB;
-            const slot = (W - padL - padR) / Math.max(days.length, 1);
-            const svg = document.createElementNS(ns, 'svg');
-            svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-            svg.setAttribute('class', 'graph');
-            svg.setAttribute('role', 'img');
-            const base = document.createElementNS(ns, 'line');
-            base.setAttribute('x1', String(padL));
-            base.setAttribute('x2', String(W - padR));
-            base.setAttribute('y1', String(padT + innerH));
-            base.setAttribute('y2', String(padT + innerH));
-            base.setAttribute('stroke', 'currentColor');
-            base.setAttribute('opacity', '0.15');
-            svg.appendChild(base);
-            if (extra) extra(svg, { padL, padT, innerH, slot });
-            days.forEach((day, i) => {
-                const x = padL + slot * i;
-                for (const node of columns(day, slot, x, innerH, padT, W)) svg.appendChild(node);
-                const hit = document.createElementNS(ns, 'rect');
-                hit.setAttribute('x', String(x));
-                hit.setAttribute('y', '0');
-                hit.setAttribute('width', String(slot));
-                hit.setAttribute('height', String(H));
-                hit.setAttribute('fill', 'transparent');
-                hit.addEventListener('pointerenter', () => { text('graph-readout', label(day)); });
-                svg.appendChild(hit);
+            }
+            plot.dataset.span = days.length <= 3 ? 'short' : 'month';
+            [...plot.children].forEach((col, i) => {
+                const day = days[i];
+                const parts = partsOf(day);
+                const total = totals[i];
+                const bar = col.querySelector('.bar');
+                bar.classList.toggle('stack', parts.length > 1);
+                const nextHeight = Math.max(total > 0 ? 6 : 0, Math.round((total / max) * 184)) + 'px';
+                if (!bar.dataset.ready) {
+                    bar.style.height = '0px';
+                    requestAnimationFrame(() => {
+                        bar.style.height = nextHeight;
+                        bar.dataset.ready = '1';
+                    });
+                } else {
+                    bar.style.height = nextHeight;
+                }
+                if (parts.length > 1) {
+                    bar.replaceChildren();
+                    bar.style.background = 'transparent';
+                    for (const part of parts) {
+                        if (part.value <= 0) continue;
+                        const slice = document.createElement('i');
+                        slice.style.height = Math.max(2, Math.round((part.value / total) * 100)) + '%';
+                        slice.style.background = part.color;
+                        bar.appendChild(slice);
+                    }
+                } else {
+                    bar.replaceChildren();
+                    bar.style.background = parts[0].color;
+                }
+                col.querySelector('.xlabel').textContent = dayNumber(day.day);
+                col._tip = label(day);
+                col.onfocus = () => {
+                    plot.querySelectorAll('.col').forEach((item) => item.classList.remove('on'));
+                    col.classList.add('on');
+                    const rect = col.getBoundingClientRect();
+                    placeTip({ clientX: rect.left + 8, clientY: rect.top + 8 }, col._tip);
+                };
             });
-            return svg;
-        }
-
-        function rect(x, y, w, h, fill) {
-            const node = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            node.setAttribute('x', String(x));
-            node.setAttribute('y', String(Math.max(y, 0)));
-            node.setAttribute('width', String(w));
-            node.setAttribute('height', String(Math.max(h, 0)));
-            node.setAttribute('rx', '2');
-            node.setAttribute('fill', fill);
-            return node;
+            if (!plot._bound) {
+                plot._bound = true;
+                plot.addEventListener('pointermove', (event) => {
+                    const col = event.target.closest('.col');
+                    if (!col || !plot.contains(col)) return;
+                    plot.querySelectorAll('.col').forEach((item) => item.classList.toggle('on', item === col));
+                    placeTip(event, col._tip);
+                });
+                plot.addEventListener('pointerleave', () => {
+                    plot.querySelectorAll('.col').forEach((item) => item.classList.remove('on'));
+                    $('tip').classList.remove('show');
+                });
+                plot.addEventListener('focusout', (event) => {
+                    if (plot.contains(event.relatedTarget)) return;
+                    plot.querySelectorAll('.col').forEach((item) => item.classList.remove('on'));
+                    $('tip').classList.remove('show');
+                });
+            }
         }
 
         let routeState = [];
@@ -859,6 +975,7 @@
                 const row = document.createElement('label');
                 row.className = 'route';
                 const name = document.createElement('div');
+                name.className = 'who';
                 const title = document.createElement('strong');
                 title.textContent = route.label;
                 const id = document.createElement('span');
