@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foundry</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #ffffff;
+            --ink: #15110c;
+            --muted: #5c574f;
+            --faint: #8a847a;
+            --line: #e6ebee;
+            --field: #fdfbe4;
+            --fill: #15110c;
+            --fill-ink: #ffffff;
+            --blue: #225bff;
+            --ok: #1f6b45;
+            --bad: #9c3b2e;
+            --hover: #f4f6f8;
+            --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+            --display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+            --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; background: var(--bg); color: var(--ink); }
+        body { font: 16px/1.45 var(--sans); }
+        header {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            min-height: 72px;
+            padding: 16px 32px;
+            border-bottom: 1px solid var(--line);
+        }
+        .brand {
+            justify-self: start;
+            font-family: var(--display);
+            font-weight: 600;
+            letter-spacing: -0.03em;
+            font-size: 18px;
+        }
+        nav {
+            justify-self: center;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 4px;
+            padding: 4px;
+            background: #eef1f4;
+            border-radius: 999px;
+        }
+        nav button {
+            appearance: none;
+            border: 0;
+            background: transparent;
+            color: var(--ink);
+            font: 14px/1 var(--sans);
+            padding: 10px 16px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background 180ms var(--ease), color 180ms var(--ease), transform 180ms var(--ease);
+        }
+        nav button:hover { transform: translateY(-1px); }
+        nav button[aria-selected="true"] {
+            background: var(--fill);
+            color: var(--fill-ink);
+        }
+        .when {
+            justify-self: end;
+            color: var(--muted);
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+        .lead {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            margin: 0 0 22px;
+        }
+        .lead svg { width: 28px; height: 28px; flex: none; margin-top: 2px; }
+        .lead h2 { margin: 0; font-size: 28px; }
+        .lead p { margin: 6px 0 0; color: var(--muted); font-size: 15px; max-width: 62ch; }
+        footer {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 28px 32px 48px;
+            text-align: center;
+        }
+        footer p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        footer a {
+            color: var(--ink);
+            text-decoration: none;
+            border-bottom: 1px solid var(--line);
+            transition: border-color 180ms var(--ease);
+        }
+        footer a:hover { border-bottom-color: var(--ink); }
+        main { max-width: 1120px; margin: 0 auto; padding: 32px 32px 80px; }
+        .enter { animation: rise 420ms var(--ease); }
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: none; }
+        }
+        .tick { animation: tick 280ms var(--ease); }
+        @keyframes tick {
+            from { opacity: 0.35; }
+            to { opacity: 1; }
+        }
+        .hero {
+            display: grid;
+            grid-template-columns: 1.4fr 1.3fr 0.8fr 0.9fr;
+            gap: 8px;
+            padding: 28px;
+            background: var(--field);
+            border-radius: 8px;
+        }
+        .k { color: var(--muted); font-size: 13px; }
+        .display {
+            display: block;
+            margin-top: 8px;
+            font-family: var(--display);
+            font-size: 42px;
+            font-weight: 560;
+            letter-spacing: -0.03em;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .v {
+            display: block;
+            margin-top: 8px;
+            font-family: var(--display);
+            font-size: 20px;
+            font-weight: 560;
+            letter-spacing: -0.02em;
+            font-variant-numeric: tabular-nums;
+        }
+        .meter {
+            height: 4px;
+            margin-top: 14px;
+            background: var(--line);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .meter i {
+            display: block;
+            height: 100%;
+            width: 0;
+            background: var(--blue);
+            border-radius: 999px;
+        }
+        .pct { margin-top: 8px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+        .sheet {
+            margin-top: 28px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: auto;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            vertical-align: baseline;
+        }
+        tr:last-child td { border-bottom: 0; }
+        th {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 500;
+            background: var(--bg);
+        }
+        td { font-size: 14px; }
+        tbody tr { transition: background 160ms var(--ease); }
+        tbody tr:hover td { background: var(--hover); }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .ok { color: var(--ok); }
+        .bad { color: var(--bad); }
+        .empty { padding: 28px 14px; color: var(--muted); }
+        .split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .split article {
+            padding: 28px;
+            background: var(--field);
+            border-radius: 8px;
+        }
+        .figure {
+            margin-top: 10px;
+            font-family: var(--display);
+            font-size: 42px;
+            font-weight: 560;
+            letter-spacing: -0.03em;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .figure em { font-style: normal; color: var(--blue); margin-right: 2px; }
+        .meta { margin-top: 14px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+        h2 {
+            margin: 32px 0 0;
+            font-family: var(--display);
+            font-size: 20px;
+            font-weight: 560;
+            letter-spacing: -0.02em;
+        }
+        .chart-label { margin: 28px 0 0; color: var(--muted); font-size: 13px; }
+        .days {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+            height: 96px;
+            margin-top: 12px;
+        }
+        .day {
+            flex: 1 0 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            height: 100%;
+        }
+        .day b {
+            display: block;
+            width: 100%;
+            height: 0;
+            background: var(--blue);
+            border-radius: 3px 3px 0 0;
+            opacity: 0.85;
+        }
+        .day.today b { opacity: 1; }
+        .day.flat b { height: 2px; background: var(--line); opacity: 1; }
+        .day span {
+            margin-top: 8px;
+            text-align: center;
+            color: var(--faint);
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }
+        .day.today span { color: var(--ink); }
+        .note { margin: 20px 0 0; max-width: 68ch; color: var(--muted); font-size: 13px; line-height: 1.55; }
+        .graphs { display: grid; gap: 16px; margin-top: 8px; }
+        .graph-card {
+            padding: 20px 20px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+        }
+        .graph-card h2 { margin: 0; }
+        .graph { width: 100%; height: auto; display: block; margin-top: 12px; }
+        .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+        .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
+        .legend .fresh { background: #225bff; }
+        .legend .read { background: #8aa4ff; }
+        .legend .write { background: #c4a15a; }
+        .legend .out { background: var(--ink); }
+        .readout { min-height: 1.4em; margin: 8px 0 0; color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+        .routes { display: grid; gap: 8px; margin-top: 16px; }
+        .route {
+            display: grid;
+            grid-template-columns: minmax(160px, 220px) 36px minmax(180px, 280px);
+            gap: 12px;
+            align-items: center;
+            padding: 16px 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--bg);
+            transition: border-color 180ms var(--ease), transform 180ms var(--ease);
+            animation: rise 420ms var(--ease) both;
+        }
+        .route:hover { border-color: #c5ccd1; transform: translateY(-1px); }
+        .route .arrow { width: 28px; height: 16px; color: var(--blue); }
+        .route strong { font-weight: 600; letter-spacing: -0.02em; }
+        .route span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+        select {
+            appearance: none;
+            width: 100%;
+            justify-self: stretch;
+            background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 L6 6.5 L11 1.5' fill='none' stroke='%2315110c' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center;
+            color: var(--ink);
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 12px 36px 12px 16px;
+            font: 15px/1 var(--sans);
+            cursor: pointer;
+            transition: border-color 180ms var(--ease);
+        }
+        select:hover, select:focus { border-color: var(--ink); outline: none; }
+        .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+        .actions button, .confirm button {
+            appearance: none;
+            border: 0;
+            border-radius: 999px;
+            padding: 10px 16px;
+            font: 14px/1 var(--sans);
+            cursor: pointer;
+        }
+        .primary { background: var(--fill); color: var(--fill-ink); }
+        .quiet { background: var(--line); color: var(--ink); }
+        .confirm, .notice {
+            margin-top: 16px;
+            padding: 16px 18px;
+            border-radius: 8px;
+            background: var(--field);
+        }
+        .confirm p, .notice p { margin: 0 0 12px; }
+        @media (prefers-reduced-motion: reduce) {
+            .enter, .tick, .meter i, .day b, tbody tr, .route, nav button, footer a { animation: none; transition: none; }
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .meter i, .day b { transition: width 520ms var(--ease), height 520ms var(--ease); }
+        }
+        @media (max-width: 800px) {
+            header, main, footer { padding-left: 16px; padding-right: 16px; }
+            header { grid-template-columns: 1fr; justify-items: center; gap: 12px; }
+            .when { display: none; }
+            .hero, .split, .route { grid-template-columns: 1fr; }
+            .route .arrow { transform: rotate(90deg); }
+            .display, .figure { font-size: 32px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">Foundry</div>
+        <nav>
+            <button type="button" id="tab-requests" aria-selected="true">Requests</button>
+            <button type="button" id="tab-graphs" aria-selected="false">Graphs</button>
+            <button type="button" id="tab-models" aria-selected="false">Models</button>
+            <button type="button" id="tab-cost" aria-selected="false">Cost</button>
+        </nav>
+        <div class="when" id="when">UTC</div>
+    </header>
+    <main>
+        <section id="view-requests" class="enter">
+            <div class="lead">
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M6 8h16M6 14h16M6 20h10" stroke="#15110c" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div>
+                    <h2>Requests</h2>
+                    <p>Each call Claude Code sent through this proxy.</p>
+                </div>
+            </div>
+            <div class="hero">
+                <article>
+                    <div class="k">Tokens today</div>
+                    <strong class="display" id="tokens">0</strong>
+                </article>
+                <article>
+                    <div class="k">Daily ceiling</div>
+                    <strong class="v" id="ceiling">0</strong>
+                    <div class="meter"><i id="bar"></i></div>
+                    <div class="pct" id="pct"></div>
+                </article>
+                <article>
+                    <div class="k">Requests today</div>
+                    <strong class="v" id="count">0</strong>
+                </article>
+                <article>
+                    <div class="k">Last request</div>
+                    <strong class="v" id="last">—</strong>
+                </article>
+            </div>
+            <div class="sheet">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Model</th>
+                            <th>Deployment</th>
+                            <th class="num">Fresh</th>
+                            <th class="num">Read</th>
+                            <th class="num">Write</th>
+                            <th class="num">Out</th>
+                            <th class="num" title="Included in Out. Billed as output.">Reason</th>
+                            <th class="num" title="Azure total_tokens. This is what the daily ceiling counts.">Total</th>
+                            <th>Status</th>
+                            <th>Stop</th>
+                            <th class="num">ms</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
+                <div class="empty" id="empty">No requests yet.</div>
+            </div>
+        </section>
+        <section id="view-graphs" hidden>
+            <div class="lead">
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M5 20 V8M5 20 H23" stroke="#15110c" stroke-width="1.6" stroke-linecap="round"/><path d="M8 16l4-5 4 3 5-7" stroke="#225BFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div>
+                    <h2>Graphs</h2>
+                    <p>The same UTC month, drawn as requests, tokens, and estimated cost.</p>
+                </div>
+            </div>
+            <div class="graphs">
+                <article class="graph-card">
+                    <h2>Requests</h2>
+                    <div id="graph-requests"></div>
+                </article>
+                <article class="graph-card">
+                    <h2>Tokens</h2>
+                    <div id="graph-tokens"></div>
+                    <div class="legend">
+                        <span><i class="fresh"></i>Fresh</span>
+                        <span><i class="read"></i>Read</span>
+                        <span><i class="write"></i>Write</span>
+                        <span><i class="out"></i>Out</span>
+                    </div>
+                </article>
+                <article class="graph-card">
+                    <h2>Cost</h2>
+                    <div id="graph-cost"></div>
+                </article>
+            </div>
+            <p class="readout" id="graph-readout">Hover a day.</p>
+            <p class="note">Each mark is one UTC day, from the 1st through the end of the month. Future days are empty. Token bars stack fresh input, cache read, cache write, and output. Cost uses the same estimate as the Cost tab.</p>
+        </section>
+        <section id="view-models" hidden>
+            <div class="lead">
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="3" y="7" width="8" height="14" rx="2" stroke="#15110c" stroke-width="1.6"/><path d="M13 14h6M17 11l3 3-3 3" stroke="#225BFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><rect x="17" y="7" width="8" height="14" rx="2" stroke="#15110c" stroke-width="1.6"/></svg>
+                <div>
+                    <h2>Choose a model</h2>
+                    <p>These four are the models in Claude Code’s picker. Choose which Foundry deployment answers each one. Deploy that model in your Foundry project first. A name that is not deployed will fail the next request. The proxy does not create deployments.</p>
+                </div>
+            </div>
+            <div class="routes" id="routes"></div>
+            <div class="actions">
+                <button type="button" class="primary" id="review-routes">Review changes</button>
+            </div>
+            <div class="confirm" id="route-confirm" hidden>
+                <p id="route-summary"></p>
+                <button type="button" class="primary" id="confirm-routes">Confirm and apply</button>
+                <button type="button" class="quiet" id="cancel-routes">Cancel</button>
+            </div>
+            <div class="notice" id="route-notice" hidden>
+                <p id="route-notice-text"></p>
+            </div>
+        </section>
+        <section id="view-cost" hidden>
+            <div class="lead">
+                <svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><circle cx="14" cy="14" r="8" stroke="#15110c" stroke-width="1.6"/><path d="M14 10v8M11.5 12.2c.6-.8 1.4-1.2 2.5-1.2 1.4 0 2.3.7 2.3 1.7 0 2.2-4.8.9-4.8 3.1 0 1 .9 1.7 2.4 1.7 1.1 0 2-.4 2.6-1.2" stroke="#225BFF" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <div>
+                    <h2>Cost</h2>
+                    <p>Estimated USD for today and for the month, from the 1st.</p>
+                </div>
+            </div>
+            <div class="split">
+                <article>
+                    <div class="k" id="today-label">Today</div>
+                    <div class="figure" id="today-usd">—</div>
+                    <div class="meta" id="today-meta"></div>
+                </article>
+                <article>
+                    <div class="k" id="month-label">Month</div>
+                    <div class="figure" id="month-usd">—</div>
+                    <div class="meta" id="month-meta"></div>
+                </article>
+            </div>
+            <p class="chart-label" id="chart-label">Month</p>
+            <div class="days" id="days"></div>
+            <h2>By deployment</h2>
+            <div class="sheet">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Deployment</th>
+                            <th>Lane</th>
+                            <th class="num">Calls</th>
+                            <th class="num">Fresh</th>
+                            <th class="num">Read</th>
+                            <th class="num">Write</th>
+                            <th class="num">Out</th>
+                            <th class="num">Reason</th>
+                            <th class="num">USD</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deps"></tbody>
+                </table>
+                <div class="empty" id="deps-empty">No billed requests this month.</div>
+            </div>
+            <h2>Rate card</h2>
+            <div class="sheet">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Lane</th>
+                            <th class="num">Input</th>
+                            <th class="num">Cache read</th>
+                            <th class="num">Cache write</th>
+                            <th class="num">Output</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rates"></tbody>
+                </table>
+            </div>
+            <p class="note">USD per 1,000,000 tokens, OpenAI Standard card. Azure Global Standard for gpt-6-luna matches it. This is not the Azure invoice: Data Zone, tax, and currency conversion are omitted. Above 272,000 input tokens, the long rate covers the whole request. A cache-write token is charged at the write rate instead of the fresh-input rate. Reasoning tokens are already inside output and are not added again. Requests logged before write tracking are priced as fresh input. Days and the month are UTC, from the 1st through today. Request clocks on the other tab use this computer’s local time.            </p>
+        </section>
+    </main>
+    <footer>
+        <p>Made by <a href="https://github.com/dimension-drifter">Deepam Tater</a>. This page is the local proxy that lets Claude Code call the GPT models in your Foundry project.</p>
+    </footer>
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const text = (id, value) => {
+            const node = $(id);
+            const next = String(value);
+            if (node.textContent === next) return;
+            node.textContent = next;
+            node.classList.remove('tick');
+            void node.offsetWidth;
+            node.classList.add('tick');
+        };
+        let requestSig = '';
+        let daySig = '';
+
+        function fmt(n) {
+            return Number(n || 0).toLocaleString();
+        }
+        function when(iso) {
+            const date = new Date(iso);
+            if (Number.isNaN(date.getTime())) return '';
+            return date.toLocaleTimeString();
+        }
+        function monthName(iso) {
+            const [y, m] = iso.split('-').map(Number);
+            const name = new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+            return name + ' ' + y;
+        }
+        function shortDate(iso) {
+            const [y, m, d] = iso.split('-').map(Number);
+            const name = new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+            return d + ' ' + name + ' ' + y;
+        }
+        function dayNumber(iso) {
+            return String(Number(iso.slice(8)));
+        }
+        function laneLabel(lane) {
+            return lane === 'long' ? '>272k' : '≤272k';
+        }
+        function parts(row) {
+            const write = Number(row.cacheWriteTokens || 0);
+            const fresh = row.freshTokens == null ? Math.max(0, Number(row.inputTokens || 0) - write) : Number(row.freshTokens);
+            return {
+                fresh,
+                read: Number(row.cachedTokens || 0),
+                write,
+                out: Number(row.outputTokens || 0),
+                reason: Number(row.reasoningTokens || 0),
+                total: Number(row.totalTokens || 0)
+            };
+        }
+        function cell(value, numeric) {
+            const td = document.createElement('td');
+            td.textContent = value;
+            if (numeric) td.className = 'num';
+            return td;
+        }
+        function money(node, statement) {
+            const next = !statement || statement.priced === false ? '—' : '$' + statement.usd;
+            if (node.dataset.value === next) return;
+            node.dataset.value = next;
+            node.replaceChildren();
+            if (next === '—') {
+                node.textContent = '—';
+            } else {
+                const mark = document.createElement('em');
+                mark.textContent = '$';
+                node.appendChild(mark);
+                node.appendChild(document.createTextNode(statement.usd));
+            }
+            node.classList.remove('tick');
+            void node.offsetWidth;
+            node.classList.add('tick');
+        }
+        function meta(statement) {
+            if (!statement) return '';
+            const input = statement.fresh + statement.cached + statement.write;
+            const share = input > 0 ? ' · cache read ' + (Math.round((statement.cached / input) * 1000) / 10) + '% of input' : '';
+            return [
+                fmt(statement.requests) + ' billed',
+                'fresh ' + fmt(statement.fresh),
+                'read ' + fmt(statement.cached),
+                'write ' + fmt(statement.write),
+                'out ' + fmt(statement.output),
+                'reasoning ' + fmt(statement.reasoning)
+            ].join(' · ') + share;
+        }
+        const VIEWS = ['requests', 'graphs', 'models', 'cost'];
+        function show(name) {
+            if (!VIEWS.includes(name)) name = 'requests';
+            for (const view of VIEWS) {
+                const node = $(`view-${view}`);
+                node.hidden = view !== name;
+                $(`tab-${view}`).setAttribute('aria-selected', String(view === name));
+            }
+            const visible = $(`view-${name}`);
+            visible.classList.remove('enter');
+            void visible.offsetWidth;
+            visible.classList.add('enter');
+            try { sessionStorage.setItem('azure-proxy-tab', name); } catch { /* private mode */ }
+        }
+
+        function renderRequests(data) {
+            const today = data.today || {};
+            const requests = Array.isArray(data.requests) ? data.requests : [];
+            const dayRows = requests.filter((row) => String(row.at || '').slice(0, 10) === today.day);
+            text('tokens', fmt(today.totalTokens));
+            text('ceiling', today.ceiling ? fmt(today.ceiling) : 'none');
+            text('count', fmt(dayRows.length));
+            text('last', requests[0] ? when(requests[0].at) : '—');
+            const used = Number(today.totalTokens || 0);
+            const cap = Number(today.ceiling || 0);
+            const ratio = cap ? Math.min(100, (used / cap) * 100) : 0;
+            $('bar').style.width = ratio + '%';
+            text('pct', cap ? (ratio < 10 ? ratio.toFixed(1) : String(Math.round(ratio))) + '% of ceiling' : '');
+            text('when', today.day ? shortDate(today.day) + ' UTC' : 'UTC');
+            const sig = requests.map((row) => [row.id, row.status, row.totalTokens, row.cachedTokens, row.outputTokens].join(':')).join('|');
+            if (sig === requestSig) return;
+            requestSig = sig;
+            const body = $('rows');
+            body.replaceChildren();
+            $('empty').hidden = requests.length > 0;
+            for (const row of requests) {
+                const tr = document.createElement('tr');
+                const p = parts(row);
+                tr.append(
+                    cell(when(row.at), false),
+                    cell(row.model || '', false),
+                    cell(row.deployment || '', false),
+                    cell(fmt(p.fresh), true),
+                    cell(fmt(p.read), true),
+                    cell(fmt(p.write), true),
+                    cell(fmt(p.out), true),
+                    cell(fmt(p.reason), true),
+                    cell(fmt(p.total), true)
+                );
+                const status = cell(String(row.status || ''), false);
+                status.className = row.status >= 400 ? 'bad' : 'ok';
+                tr.appendChild(status);
+                tr.appendChild(cell(row.stopReason || '', false));
+                tr.appendChild(cell(fmt(row.durationMs), true));
+                body.appendChild(tr);
+            }
+        }
+
+        function renderCost(data) {
+            const cost = data.cost;
+            if (!cost) return;
+            text('today-label', 'Today · ' + shortDate(cost.day));
+            text('month-label', monthName(cost.monthStart) + ' · from the 1st');
+            money($('today-usd'), cost.today);
+            money($('month-usd'), cost.month);
+            text('today-meta', meta(cost.today));
+            text('month-meta', shortDate(cost.monthStart) + ' – ' + shortDate(cost.day) + ' · ' + meta(cost.month));
+            text('chart-label', monthName(cost.monthStart));
+            const days = Array.isArray(cost.days) ? cost.days : [];
+            const sig = days.map((day) => day.day + ':' + day.micros).join('|');
+            if (sig !== daySig) {
+                daySig = sig;
+                const max = Math.max(1, ...days.filter((day) => day.day <= cost.day).map((day) => Number(day.micros) || 0));
+                const chart = $('days');
+                chart.replaceChildren();
+                for (const day of days) {
+                    const item = document.createElement('div');
+                    const future = day.day > cost.day;
+                    const amount = Number(day.micros) || 0;
+                    item.className = 'day' + (day.day === cost.day ? ' today' : '') + (future ? ' future' : '') + (!future && amount === 0 ? ' flat' : '');
+                    item.title = future ? day.day : day.day + '  $' + day.usd;
+                    const bar = document.createElement('b');
+                    item.appendChild(bar);
+                    const label = document.createElement('span');
+                    label.textContent = dayNumber(day.day);
+                    item.appendChild(label);
+                    chart.appendChild(item);
+                    const height = !future && amount > 0 ? Math.max(2, Math.round((amount / max) * 72)) : 0;
+                    requestAnimationFrame(() => { bar.style.height = height ? height + 'px' : ''; });
+                }
+            }
+            const deps = $('deps');
+            const rows = []
+                .concat(cost.month?.deployments || [])
+                .concat(cost.month?.unpriced || []);
+            const depSig = rows.map((row) => [row.deployment, row.lane, row.requests, row.usd, row.priced].join(':')).join('|');
+            if (deps.dataset.sig !== depSig) {
+                deps.dataset.sig = depSig;
+                deps.replaceChildren();
+                $('deps-empty').hidden = rows.length > 0;
+                for (const row of rows) {
+                    const tr = document.createElement('tr');
+                    tr.append(
+                        cell(row.deployment, false),
+                        cell(laneLabel(row.lane), false),
+                        cell(fmt(row.requests), true),
+                        cell(fmt(row.fresh), true),
+                        cell(fmt(row.cached), true),
+                        cell(fmt(row.write), true),
+                        cell(fmt(row.output), true),
+                        cell(fmt(row.reasoning), true),
+                        cell(row.priced ? row.usd : 'no rate', true)
+                    );
+                    deps.appendChild(tr);
+                }
+            }
+            const rates = $('rates');
+            if (!rates.childElementCount) {
+                for (const card of cost.rates || []) {
+                    for (const lane of ['short', 'long']) {
+                        const rate = card[lane];
+                        const tr = document.createElement('tr');
+                        tr.append(
+                            cell(card.model, false),
+                            cell(lane === 'long' ? '>272k input' : '≤272k input', false),
+                            cell(rate.fresh, true),
+                            cell(rate.cached, true),
+                            cell(rate.write, true),
+                            cell(rate.output, true)
+                        );
+                        rates.appendChild(tr);
+                    }
+                }
+            }
+        }
+
+        async function refresh() {
+            const response = await fetch('/api/usage');
+            const data = await response.json();
+            renderRequests(data);
+            renderCost(data);
+            renderGraphs(data.cost);
+            renderRoutes(data.routing);
+        }
+
+        function renderGraphs(cost) {
+            if (!cost || !Array.isArray(cost.days)) return;
+            const sig = cost.days.map((day) => [day.day, day.requests, day.totalTokens, day.micros, day.fresh, day.cached, day.write, day.output].join(':')).join('|');
+            if (sig === renderGraphs.sig) return;
+            renderGraphs.sig = sig;
+            drawBars($('graph-requests'), cost.days, 'requests');
+            drawStack($('graph-tokens'), cost.days);
+            drawArea($('graph-cost'), cost.days);
+        }
+
+        function drawBars(host, days, key) {
+            const max = Math.max(1, ...days.map((day) => Number(day[key]) || 0));
+            host.replaceChildren(frame(days, (day, slot, x, innerH, padT) => {
+                const value = Number(day[key]) || 0;
+                const h = (value / max) * innerH;
+                return [rect(x + 3, padT + innerH - h, Math.max(slot - 6, 2), h, 'var(--blue)')];
+            }, (day) => `${dayNumber(day.day)}  ${fmt(day.requests)} requests`));
+        }
+
+        function drawStack(host, days) {
+            const parts = [
+                ['fresh', '#225BFF'],
+                ['cached', '#8AA4FF'],
+                ['write', '#C4A15A'],
+                ['output', 'currentColor']
+            ];
+            const max = Math.max(1, ...days.map((day) => parts.reduce((sum, [name]) => sum + (Number(day[name]) || 0), 0)));
+            host.replaceChildren(frame(days, (day, slot, x, innerH, padT) => {
+                let y = padT + innerH;
+                const nodes = [];
+                for (const [name, color] of parts) {
+                    const h = ((Number(day[name]) || 0) / max) * innerH;
+                    y -= h;
+                    if (h > 0) nodes.push(rect(x + 3, y, Math.max(slot - 6, 2), h, color));
+                }
+                return nodes;
+            }, (day) => `${dayNumber(day.day)}  fresh ${fmt(day.fresh)}  read ${fmt(day.cached)}  write ${fmt(day.write)}  out ${fmt(day.output)}`));
+        }
+
+        function drawArea(host, days) {
+            const max = Math.max(1, ...days.map((day) => Number(day.micros) || 0));
+            host.replaceChildren(frame(days, (day, slot, x, innerH, padT, width) => {
+                return [];
+            }, (day) => `${dayNumber(day.day)}  $${day.usd}`, (svg, geom) => {
+                const ns = 'http://www.w3.org/2000/svg';
+                const pts = days.map((day, i) => {
+                    const x = geom.padL + geom.slot * i + geom.slot / 2;
+                    const y = geom.padT + geom.innerH - ((Number(day.micros) || 0) / max) * geom.innerH;
+                    return [x, y];
+                });
+                if (pts.length === 0) return;
+                const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+                const area = `${line} L${pts[pts.length - 1][0].toFixed(1)} ${(geom.padT + geom.innerH).toFixed(1)} L${pts[0][0].toFixed(1)} ${(geom.padT + geom.innerH).toFixed(1)} Z`;
+                const fill = document.createElementNS(ns, 'path');
+                fill.setAttribute('d', area);
+                fill.setAttribute('fill', '#225BFF');
+                fill.setAttribute('opacity', '0.16');
+                const stroke = document.createElementNS(ns, 'path');
+                stroke.setAttribute('d', line);
+                stroke.setAttribute('fill', 'none');
+                stroke.setAttribute('stroke', '#225BFF');
+                stroke.setAttribute('stroke-width', '2');
+                svg.insertBefore(fill, svg.firstChild);
+                svg.insertBefore(stroke, svg.firstChild.nextSibling);
+            }));
+        }
+
+        function frame(days, columns, label, extra) {
+            const ns = 'http://www.w3.org/2000/svg';
+            const W = 720;
+            const H = 168;
+            const padL = 4;
+            const padR = 4;
+            const padT = 8;
+            const padB = 4;
+            const innerH = H - padT - padB;
+            const slot = (W - padL - padR) / Math.max(days.length, 1);
+            const svg = document.createElementNS(ns, 'svg');
+            svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+            svg.setAttribute('class', 'graph');
+            svg.setAttribute('role', 'img');
+            const base = document.createElementNS(ns, 'line');
+            base.setAttribute('x1', String(padL));
+            base.setAttribute('x2', String(W - padR));
+            base.setAttribute('y1', String(padT + innerH));
+            base.setAttribute('y2', String(padT + innerH));
+            base.setAttribute('stroke', 'currentColor');
+            base.setAttribute('opacity', '0.15');
+            svg.appendChild(base);
+            if (extra) extra(svg, { padL, padT, innerH, slot });
+            days.forEach((day, i) => {
+                const x = padL + slot * i;
+                for (const node of columns(day, slot, x, innerH, padT, W)) svg.appendChild(node);
+                const hit = document.createElementNS(ns, 'rect');
+                hit.setAttribute('x', String(x));
+                hit.setAttribute('y', '0');
+                hit.setAttribute('width', String(slot));
+                hit.setAttribute('height', String(H));
+                hit.setAttribute('fill', 'transparent');
+                hit.addEventListener('pointerenter', () => { text('graph-readout', label(day)); });
+                svg.appendChild(hit);
+            });
+            return svg;
+        }
+
+        function rect(x, y, w, h, fill) {
+            const node = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            node.setAttribute('x', String(x));
+            node.setAttribute('y', String(Math.max(y, 0)));
+            node.setAttribute('width', String(w));
+            node.setAttribute('height', String(Math.max(h, 0)));
+            node.setAttribute('rx', '2');
+            node.setAttribute('fill', fill);
+            return node;
+        }
+
+        let routeState = [];
+        function renderRoutes(routing) {
+            if (!routing || !Array.isArray(routing.routes) || $('routes').childElementCount) return;
+            routeState = routing.routes;
+            const host = $('routes');
+            for (const route of routing.routes) {
+                const row = document.createElement('label');
+                row.className = 'route';
+                const name = document.createElement('div');
+                const title = document.createElement('strong');
+                title.textContent = route.label;
+                const id = document.createElement('span');
+                id.textContent = route.id;
+                name.append(title, id);
+                const select = document.createElement('select');
+                select.name = route.id;
+                for (const model of routing.catalog || []) {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.label;
+                    if (model.id === route.deployment) option.selected = true;
+                    select.appendChild(option);
+                }
+                const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                arrow.setAttribute('viewBox', '0 0 28 16');
+                arrow.setAttribute('class', 'arrow');
+                arrow.setAttribute('aria-hidden', 'true');
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', 'M2 8h20M16 3l6 5-6 5');
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', 'currentColor');
+                path.setAttribute('stroke-width', '1.6');
+                path.setAttribute('stroke-linecap', 'round');
+                path.setAttribute('stroke-linejoin', 'round');
+                arrow.appendChild(path);
+                row.style.animationDelay = (host.childElementCount * 45) + 'ms';
+                row.append(name, arrow, select);
+                host.appendChild(row);
+            }
+        }
+
+        function selectedRoutes() {
+            const routes = {};
+            for (const select of document.querySelectorAll('#routes select')) routes[select.name] = select.value;
+            return routes;
+        }
+
+        $('review-routes').addEventListener('click', () => {
+            const next = selectedRoutes();
+            const lines = routeState
+                .filter((route) => next[route.id] && next[route.id] !== route.deployment)
+                .map((route) => `${route.label}: ${route.deployment} → ${next[route.id]}`);
+            $('route-notice').hidden = true;
+            if (lines.length === 0) {
+                $('route-summary').textContent = 'No change from the mapping already in use.';
+            } else {
+                $('route-summary').textContent = lines.join('  ·  ');
+            }
+            $('route-confirm').hidden = false;
+        });
+        $('cancel-routes').addEventListener('click', () => { $('route-confirm').hidden = true; });
+        $('confirm-routes').addEventListener('click', async () => {
+            const response = await fetch('/api/routing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ routes: selectedRoutes() })
+            });
+            const body = await response.json();
+            $('route-confirm').hidden = true;
+            const notice = $('route-notice');
+            notice.hidden = false;
+            if (!response.ok) {
+                $('route-notice-text').textContent = body.error || 'Could not save the mapping.';
+                return;
+            }
+            routeState = body.routing.routes;
+            $('route-notice-text').textContent = body.notice;
+        });
+
+        $('tab-requests').addEventListener('click', () => show('requests'));
+        $('tab-graphs').addEventListener('click', () => show('graphs'));
+        $('tab-models').addEventListener('click', () => show('models'));
+        $('tab-cost').addEventListener('click', () => show('cost'));
+        try {
+            const saved = sessionStorage.getItem('azure-proxy-tab');
+            if (VIEWS.includes(saved)) show(saved);
+        } catch { /* private mode */ }
+        refresh();
+        setInterval(refresh, 2000);
+    </script>
+</body>
+</html>

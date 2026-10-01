@@ -1,0 +1,13 @@
+{
+  "_comment": "Optional alternative to .env. Copy to ~/.config/foundry-claude-proxy/config.json. Do not put an API key in this file.",
+  "endpoint": "https://YOUR_RESOURCE.services.ai.azure.com/openai/v1",
+  "allowHosts": ["YOUR_RESOURCE.services.ai.azure.com"],
+  "defaultDeployment": "your-deployment-name",
+  "opus": "your-deployment-name",
+  "sonnet": "your-deployment-name",
+  "haiku": "your-deployment-name",
+  "fable": "your-deployment-name",
+  "reasoningEffort": "",
+  "maxOutputTokens": 128000,
+  "dailyTokenCeiling": 20000000
+}
