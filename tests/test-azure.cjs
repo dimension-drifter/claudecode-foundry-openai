@@ -1201,6 +1201,39 @@ test('gpt-6-luna cache writes are priced once and reasoning stays inside output'
     }
 });
 
+test('GPT-6 chat calls omit stop so Claude Code safety checks are not rejected', async () => {
+    const harness = await makeHarness({ deployment: 'gpt-6-luna', sonnet: 'gpt-6-luna' });
+    try {
+        const response = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: { ...userMessage('classify'), stop_sequences: ['END', ''] }
+        });
+        assert.equal(response.status, 200);
+        const sent = harness.mock.requests[0];
+        assert.equal(sent.url, '/openai/v1/chat/completions');
+        assert.equal(sent.json.stop, undefined);
+        assert.equal(sent.json.model, 'gpt-6-luna');
+    } finally {
+        await harness.close();
+    }
+});
+
+test('a non-reasoning deployment still receives stop sequences', async () => {
+    const harness = await makeHarness({ deployment: 'gpt-4o' });
+    try {
+        const response = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: { ...userMessage('classify'), model: 'gpt-4o', stop_sequences: ['END'] }
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(harness.mock.requests[0].json.stop, ['END']);
+    } finally {
+        await harness.close();
+    }
+});
+
 test('the dashboard mapping changes the next Claude request', async () => {
     const harness = await makeHarness({
         deployment: 'gpt-6-luna',

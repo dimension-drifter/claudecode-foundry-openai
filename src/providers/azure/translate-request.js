@@ -80,7 +80,7 @@ export function translateAnthropicRequest(body, ctx) {
         payload.parallel_tool_calls = choice.parallel;
     }
 
-    if (Array.isArray(body.stop_sequences)) {
+    if (Array.isArray(body.stop_sequences) && supportsStopParameter(ctx.deployment)) {
         const stop = body.stop_sequences.filter((item) => typeof item === 'string' && item.length > 0).slice(0, 4);
         if (stop.length > 0) payload.stop = stop;
     }
@@ -108,6 +108,20 @@ export function translateAnthropicRequest(body, ctx) {
  */
 export function usesResponsesApi(deployment, toolCount) {
     return toolCount > 0 && String(deployment || '').toLowerCase().includes('gpt-6');
+}
+
+/**
+ * GPT-6 rejects `stop` on Chat Completions. Claude Code's auto-mode safety
+ * check is a non-streaming call that includes stop sequences. Forwarding
+ * them makes that check fail, so skills and agents never start.
+ * @param {string} deployment
+ * @returns {boolean}
+ */
+export function supportsStopParameter(deployment) {
+    const name = String(deployment || '').toLowerCase();
+    if (name.includes('gpt-6') || name.includes('gpt-5')) return false;
+    if (/(^|[^a-z])o[134]([^a-z]|$)/.test(name)) return false;
+    return true;
 }
 
 /**
