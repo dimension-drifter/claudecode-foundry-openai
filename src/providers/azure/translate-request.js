@@ -88,8 +88,15 @@ export function translateAnthropicRequest(body, ctx) {
     const effort = selectReasoningEffort(ctx.deployment, body, keptTools.length > 0, ctx.reasoningEffort);
     const useResponses = usesResponsesApi(ctx.deployment, keptTools.length > 0);
     if (useResponses) {
+        // Foundry counts reasoning inside max_output_tokens. Claude Code's
+        // max_tokens is only the visible answer, so add the thinking budget.
+        payload.max_completion_tokens = responsesOutputLimit(
+            ctx.maxCompletionTokens,
+            body.thinking,
+            ctx.outputCeiling || ctx.maxCompletionTokens
+        );
         return {
-            payload: chatPayloadToResponses(payload, effort),
+            payload: chatPayloadToResponses(payload, effort, ctx.reasoningLookup),
             omittedServerTools,
             api: 'responses'
         };
@@ -125,14 +132,120 @@ export function supportsStopParameter(deployment) {
 }
 
 /**
+ * Foundry's output cap includes reasoning tokens. Claude Code budgets those
+ * separately, as thinking.budget_tokens. Without the extra room the visible
+ * answer is whatever fits after the scratchpad.
+ * @param {number} visible
+ * @param {object|undefined} thinking
+ * @param {number} ceiling
+ * @returns {number}
+ */
+export function responsesOutputLimit(visible, thinking, ceiling) {
+    const cap = Math.max(1, Math.floor(ceiling) || 1);
+    const asked = Math.max(1, Math.floor(visible) || 1);
+    const type = thinking?.type;
+    let reserve = 16000;
+    if (type === 'disabled' || type === 'off') reserve = 0;
+    else {
+        const budget = Number(thinking?.budget_tokens);
+        if (Number.isFinite(budget) && budget > 0) reserve = Math.floor(budget);
+    }
+    return Math.min(cap, asked + reserve);
+}
+
+/** Prior-turn scratchpads kept for all_turns, in characters of encrypted text. */
+const PRIOR_ENCRYPTED_CHARS = 80000;
+
+/**
+ * Tool results are role "tool", so the last role "user" text is the question
+ * the current tool loop is still answering.
+ * @param {object[]} messages
+ * @returns {number}
+ */
+function lastUserTextIndex(messages) {
+    let last = -1;
+    for (let index = 0; index < messages.length; index += 1) {
+        const message = messages[index];
+        if (message?.role === 'user' && hasUserText(message.content)) last = index;
+    }
+    return last;
+}
+
+/**
+ * @param {unknown} content
+ * @returns {boolean}
+ */
+function hasUserText(content) {
+    if (typeof content === 'string') return content.trim() !== '';
+    if (!Array.isArray(content)) return false;
+    return content.some((part) => {
+        if (typeof part === 'string') return part.trim() !== '';
+        if (part?.type === 'text' || part?.type === 'input_text') return String(part.text || '').trim() !== '';
+        return false;
+    });
+}
+
+/**
+ * @param {object} message
+ * @param {(callIds: string[]) => object|null} [lookup]
+ * @returns {object|null}
+ */
+function assistantTrace(message, lookup) {
+    if (!lookup || !Array.isArray(message?.tool_calls)) return null;
+    const callIds = message.tool_calls.map((call) => call.id).filter(Boolean);
+    if (!callIds.length) return null;
+    return lookup(callIds);
+}
+
+/**
+ * @param {object|null} trace
+ * @returns {number}
+ */
+function encryptedSize(trace) {
+    return (trace?.items || []).reduce((sum, item) => sum + String(item.encrypted_content || '').length, 0);
+}
+
+/**
+ * Current tool loop is always replayed. Older scratchpads are replayed newest
+ * first until the character budget, so a follow-up question still has the plan
+ * and a long session does not resend every prior turn.
+ * @param {object[]} messages
+ * @param {(callIds: string[]) => object|null} [lookup]
+ * @returns {Set<number>}
+ */
+function tracesToReplay(messages, lookup) {
+    const selected = new Set();
+    if (!lookup) return selected;
+    const lastUser = lastUserTextIndex(messages);
+    for (let index = lastUser + 1; index < messages.length; index += 1) {
+        if (assistantTrace(messages[index], lookup)) selected.add(index);
+    }
+    let used = 0;
+    for (let index = lastUser - 1; index >= 0; index -= 1) {
+        const trace = assistantTrace(messages[index], lookup);
+        if (!trace) continue;
+        const size = encryptedSize(trace);
+        if (used > 0 && used + size > PRIOR_ENCRYPTED_CHARS) break;
+        selected.add(index);
+        used += size;
+        if (used >= PRIOR_ENCRYPTED_CHARS) break;
+    }
+    return selected;
+}
+
+/**
  * @param {object} chat Chat Completions payload
  * @param {string|undefined} effort
+ * @param {(callIds: string[]) => object|null} [lookup]
  * @returns {object}
  */
-export function chatPayloadToResponses(chat, effort) {
+export function chatPayloadToResponses(chat, effort, lookup) {
     const instructions = [];
     const input = [];
-    for (const message of chat.messages || []) {
+    const messages = chat.messages || [];
+    const replay = tracesToReplay(messages, lookup);
+    for (let index = 0; index < messages.length; index += 1) {
+        const message = messages[index];
         if (message.role === 'system') {
             if (typeof message.content === 'string' && message.content) instructions.push(message.content);
             continue;
@@ -146,15 +259,23 @@ export function chatPayloadToResponses(chat, effort) {
             continue;
         }
         if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-            if (message.content) input.push({ role: 'assistant', content: message.content });
-            for (const call of message.tool_calls) {
-                input.push({
+            const trace = replay.has(index) ? assistantTrace(message, lookup) : null;
+            const text = message.content ? { role: 'assistant', content: message.content } : null;
+            const calls = message.tool_calls.map((call) => {
+                const item = {
                     type: 'function_call',
                     call_id: call.id,
                     name: call.function?.name,
                     arguments: call.function?.arguments || '{}'
-                });
-            }
+                };
+                const itemId = trace?.callItemIds?.[call.id];
+                if (itemId) item.id = itemId;
+                return item;
+            });
+            if (trace?.lead === 'text' && text) input.push(text);
+            if (trace?.items) input.push(...trace.items);
+            if (trace?.lead !== 'text' && text) input.push(text);
+            input.push(...calls);
             continue;
         }
         input.push({
@@ -179,7 +300,12 @@ export function chatPayloadToResponses(chat, effort) {
         if (chat.tool_choice) payload.tool_choice = responsesToolChoice(chat.tool_choice);
     }
     if (chat.stream) payload.stream = true;
-    if (effort) payload.reasoning = { effort };
+    // Stateless, so Foundry returns encrypted reasoning. all_turns renders the
+    // scratchpads this request replays, including the previous question.
+    payload.store = false;
+    payload.include = ['reasoning.encrypted_content'];
+    payload.reasoning = { context: 'all_turns' };
+    if (effort) payload.reasoning.effort = effort;
     return payload;
 }
 

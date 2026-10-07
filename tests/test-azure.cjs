@@ -866,6 +866,7 @@ test('gpt-5.6 tool calls force reasoning_effort none and a normal deployment doe
 test('gpt-6 tool calls use the Responses API and keep reasoning on', async () => {
     const harness = await makeHarness({
         deployment: 'gpt-6-luna',
+        maxOutputTokens: 128000,
         onRequest: async (_record, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -893,13 +894,212 @@ test('gpt-6 tool calls use the Responses API and keep reasoning on', async () =>
         const sent = harness.mock.requests[0];
         assert.equal(sent.url, '/openai/v1/responses');
         assert.equal(sent.json.reasoning.effort, 'medium');
+        assert.equal(sent.json.reasoning.context, 'all_turns');
+        assert.equal(sent.json.store, false);
+        assert.deepEqual(sent.json.include, ['reasoning.encrypted_content']);
         assert.equal(sent.json.reasoning_effort, undefined);
-        assert.equal(sent.json.max_output_tokens, 128);
+        assert.equal(sent.json.max_output_tokens, 16128);
         assert.equal(sent.json.tools[0].name, 'Read');
         assert.equal(sent.json.tools[0].function, undefined);
         assertClean(response.text, 'responses reply');
     } finally {
         await harness.close();
+    }
+});
+
+test('gpt-6 replays encrypted reasoning through the tool loop and into the next question', async () => {
+    const readTool = { name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } };
+    const rounds = [];
+    const harness = await makeHarness({
+        deployment: 'gpt-6-luna',
+        onRequest: async (_record, res) => {
+            const round = rounds.length + 1;
+            rounds.push(round);
+            if (round === 1) {
+                res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+                res.end([
+                    sse({ type: 'response.output_text.delta', delta: 'checking' }),
+                    sse({
+                        type: 'response.output_item.added',
+                        output_index: 1,
+                        item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'Read', arguments: '' }
+                    }),
+                    sse({ type: 'response.function_call_arguments.delta', output_index: 1, delta: '{"path":"skill.md"}' }),
+                    sse({
+                        type: 'response.completed',
+                        response: {
+                            output: [
+                                { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'enc-trace-1', status: 'completed' },
+                                { type: 'message', content: [{ type: 'output_text', text: 'checking' }] },
+                                { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'Read', arguments: '{"path":"skill.md"}' }
+                            ],
+                            usage: { input_tokens: 10, output_tokens: 6, total_tokens: 16, output_tokens_details: { reasoning_tokens: 4 } }
+                        }
+                    })
+                ].join(''));
+                return;
+            }
+            if (round === 2) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    output: [
+                        { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'enc-trace-2' },
+                        { type: 'function_call', id: 'fc_2', call_id: 'call_2', name: 'Read', arguments: '{"path":"lanes.md"}' }
+                    ],
+                    usage: { input_tokens: 30, output_tokens: 5, total_tokens: 35, output_tokens_details: { reasoning_tokens: 3 } }
+                }));
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                output: [{ type: 'message', content: [{ type: 'output_text', text: 'slate' }] }],
+                usage: { input_tokens: 40, output_tokens: 2, total_tokens: 42 }
+            }));
+        }
+    });
+    try {
+        const first = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                ...userMessage('scout'),
+                stream: true,
+                thinking: { type: 'enabled', budget_tokens: 16000 },
+                tools: [readTool]
+            }
+        });
+        assert.equal(first.status, 200);
+        assert.equal(first.text.includes('enc-trace-1'), false);
+        const tool = parseSse(first.text).find((event) => event.type === 'content_block_start' && event.content_block?.type === 'tool_use');
+        assert.equal(tool.content_block.id, 'call_1');
+
+        const second = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                model: 'claude-sonnet-4-6',
+                max_tokens: 128,
+                thinking: { type: 'enabled', budget_tokens: 16000 },
+                tools: [readTool],
+                messages: [
+                    { role: 'user', content: [{ type: 'text', text: 'scout' }] },
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'text', text: 'checking' },
+                            { type: 'tool_use', id: 'call_1', name: 'Read', input: { path: 'skill.md' } }
+                        ]
+                    },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'skill body' }] }
+                ]
+            }
+        });
+        assert.equal(second.status, 200);
+        assert.equal(second.text.includes('enc-trace-2'), false);
+        const replayed = harness.mock.requests[1].json.input;
+        assert.equal(replayed[0].content, 'scout');
+        assert.equal(replayed[1].type, 'reasoning');
+        assert.equal(replayed[1].id, 'rs_1');
+        assert.equal(replayed[1].encrypted_content, 'enc-trace-1');
+        assert.equal(replayed[2].role, 'assistant');
+        assert.equal(replayed[3].type, 'function_call');
+        assert.equal(replayed[3].id, 'fc_1');
+        assert.equal(replayed[3].call_id, 'call_1');
+        assert.equal(replayed[4].type, 'function_call_output');
+        assert.equal(replayed[4].call_id, 'call_1');
+        assert.equal(replayed[4].output, 'skill body');
+
+        const third = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                model: 'claude-sonnet-4-6',
+                max_tokens: 128,
+                tools: [readTool],
+                messages: [
+                    { role: 'user', content: [{ type: 'text', text: 'scout' }] },
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'text', text: 'checking' },
+                            { type: 'tool_use', id: 'call_1', name: 'Read', input: { path: 'skill.md' } }
+                        ]
+                    },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'skill body' }] },
+                    {
+                        role: 'assistant',
+                        content: [{ type: 'tool_use', id: 'call_2', name: 'Read', input: { path: 'lanes.md' } }]
+                    },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_2', content: 'lane list' }] }
+                ]
+            }
+        });
+        assert.equal(third.status, 200);
+        const loop = harness.mock.requests[2].json.input;
+        const blobs = loop.filter((item) => item.type === 'reasoning').map((item) => item.encrypted_content);
+        assert.deepEqual(blobs, ['enc-trace-1', 'enc-trace-2']);
+        const secondCall = loop.find((item) => item.type === 'function_call' && item.call_id === 'call_2');
+        assert.equal(secondCall.id, 'fc_2');
+        assert.ok(loop.findIndex((item) => item.encrypted_content === 'enc-trace-2') < loop.findIndex((item) => item.call_id === 'call_2' && item.type === 'function_call'));
+
+        const fourth = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                model: 'claude-sonnet-4-6',
+                max_tokens: 128,
+                tools: [readTool],
+                messages: [
+                    { role: 'user', content: [{ type: 'text', text: 'scout' }] },
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'text', text: 'checking' },
+                            { type: 'tool_use', id: 'call_1', name: 'Read', input: { path: 'skill.md' } }
+                        ]
+                    },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'skill body' }] },
+                    {
+                        role: 'assistant',
+                        content: [{ type: 'tool_use', id: 'call_2', name: 'Read', input: { path: 'lanes.md' } }]
+                    },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_2', content: 'lane list' }] },
+                    { role: 'assistant', content: [{ type: 'text', text: 'slate' }] },
+                    { role: 'user', content: [{ type: 'text', text: 'draft it' }] }
+                ]
+            }
+        });
+        assert.equal(fourth.status, 200);
+        const drafted = harness.mock.requests[3].json.input;
+        assert.deepEqual(
+            drafted.filter((item) => item.type === 'reasoning').map((item) => item.encrypted_content),
+            ['enc-trace-1', 'enc-trace-2']
+        );
+        assert.equal(drafted.at(-1).content, 'draft it');
+        assert.equal(harness.logs.join('\n').includes('enc-trace-1'), false);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('reasoning cache reloads the scratchpad after a restart', async () => {
+    const { createReasoningCache, traceFromOutput } = await import('../src/providers/azure/reasoning-trace.js');
+    const dir = tmpDir();
+    try {
+        const trace = traceFromOutput([
+            { type: 'reasoning', id: 'rs_9', summary: [], encrypted_content: 'enc-9' },
+            { type: 'function_call', id: 'fc_9', call_id: 'call_9', name: 'Read', arguments: '{}' }
+        ]);
+        createReasoningCache(dir).save(trace);
+        const restored = createReasoningCache(dir).lookup(['call_9']);
+        assert.equal(restored.items[0].encrypted_content, 'enc-9');
+        assert.equal(restored.callItemIds.call_9, 'fc_9');
+        assert.equal(traceFromOutput([
+            { type: 'reasoning', id: 'rs_x', summary: [] },
+            { type: 'function_call', call_id: 'call_x', name: 'Read', arguments: '{}' }
+        ]), null);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 

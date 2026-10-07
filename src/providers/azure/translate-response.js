@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+import { traceFromOutput } from './reasoning-trace.js';
 
 /**
  * @param {object|undefined} usage
@@ -342,6 +343,23 @@ export async function* responsesEventsToAnthropic(chunks, ctx) {
     let usage = mapUsage(null);
     /** @type {Map<string, { id: string, name: string, fragments: string[] }>} */
     const tools = new Map();
+    /** @type {object[]|null} */
+    let finalOutput = null;
+    /** @type {object[]} */
+    const doneItems = [];
+    let traced = false;
+
+    const keepTrace = (output) => {
+        if (traced || !ctx.onTrace) return;
+        const trace = traceFromOutput(output);
+        if (!trace) return;
+        traced = true;
+        try {
+            ctx.onTrace(trace);
+        } catch {
+            // A cache write failure leaves the next turn on the old path.
+        }
+    };
 
     const openMessage = function* () {
         if (started) return;
@@ -396,7 +414,17 @@ export async function* responsesEventsToAnthropic(chunks, ctx) {
             const state = tools.get(key) || [...tools.values()].at(-1);
             if (state) state.fragments.push(chunk.delta);
         }
+        if (chunk?.type === 'response.output_item.done' && chunk.item) {
+            const index = Number(chunk.output_index);
+            if (Number.isInteger(index) && index >= 0) doneItems[index] = chunk.item;
+            else doneItems.push(chunk.item);
+        }
+        if ((chunk?.type === 'response.completed' || chunk?.type === 'response.incomplete') && Array.isArray(chunk.response?.output)) {
+            finalOutput = chunk.response.output;
+            keepTrace(finalOutput);
+        }
     }
+    if (!traced) keepTrace(finalOutput || doneItems.filter(Boolean));
 
     if (textOpen) {
         yield { type: 'content_block_stop', index: blockIndex };

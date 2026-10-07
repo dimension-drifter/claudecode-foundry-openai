@@ -17,6 +17,7 @@ import { SpendGuard } from './spend-guard.js';
 import { readSseJson } from './sse.js';
 import { buildNameMap, collectToolNames } from './tool-names.js';
 import { capOutputTokens, translateAnthropicRequest } from './translate-request.js';
+import { createReasoningCache, traceFromOutput } from './reasoning-trace.js';
 import { chatChunksToAnthropicEvents, responsesEventsToAnthropic, translateChatResponse, translateResponsesBody } from './translate-response.js';
 
 /**
@@ -40,6 +41,7 @@ export function createAzureApp(options = {}) {
     const ledger = options.ledger || new UsageLedger(path.join(settings.dataDir, 'ledger.json'));
     if (!options.ledger) ledger.backfill(activity.snapshot());
     const dashboardHtml = fs.readFileSync(new URL('./dashboard.html', import.meta.url), 'utf8');
+    const reasoningCache = options.reasoningCache || createReasoningCache(path.join(settings.dataDir, 'reasoning'));
     const client = options.client || createAzureClient({
         endpoint: settings.endpoint,
         apiKey: settings.azureApiKey,
@@ -141,7 +143,7 @@ export function createAzureApp(options = {}) {
 
     app.post('/v1/messages', async (req, res) => {
         try {
-            await handleMessages(req, res, { settings, secrets, log, spend, client, activity, ledger });
+            await handleMessages(req, res, { settings, secrets, log, spend, client, activity, ledger, reasoningCache });
         } catch (error) {
             log.error('[azure] message handler failed', redactSecrets(error?.message || 'error', secrets));
             if (!res.headersSent && !res.writableEnded) {
@@ -243,7 +245,9 @@ async function handleMessages(req, res, ctx) {
             deployment,
             maxCompletionTokens,
             nameMap,
-            reasoningEffort: ctx.settings.reasoningEffort || ''
+            reasoningEffort: ctx.settings.reasoningEffort || '',
+            outputCeiling: ctx.settings.maxOutputTokens,
+            reasoningLookup: (callIds) => ctx.reasoningCache.lookup(callIds)
         });
     } catch (error) {
         await save(400);
@@ -322,7 +326,8 @@ async function handleMessages(req, res, ctx) {
                 for await (const event of (translated.api === 'responses' ? responsesEventsToAnthropic : chatChunksToAnthropicEvents)(readSseJson(azureResponse), {
                     model: String(body.model),
                     restoreName: (name) => nameMap.restore(name),
-                    usageBox
+                    usageBox,
+                    onTrace: (trace) => ctx.reasoningCache.save(trace)
                 })) {
                     if (res.writableEnded) break;
                     res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
@@ -353,6 +358,7 @@ async function handleMessages(req, res, ctx) {
             }
             return;
         }
+        if (translated.api === 'responses') ctx.reasoningCache.save(traceFromOutput(json.output));
         const { anthropic, totalTokens, meters } = (translated.api === 'responses' ? translateResponsesBody : translateChatResponse)(json, {
             model: String(body.model),
             restoreName: (name) => nameMap.restore(name)
