@@ -4,7 +4,32 @@
  */
 
 import crypto from 'crypto';
-import { traceFromOutput } from './reasoning-trace.js';
+import { anthropicError } from './errors.js';
+import { reasoningItemsFromOutput, traceFromOutput } from './reasoning-trace.js';
+
+export const PREAMBLE_SIGNATURE = 'preamble';
+
+/**
+ * Foundry swaps a filtered prompt or reply for "I'm sorry, but I cannot
+ * assist with that request." and marks the response incomplete. That
+ * sentence is not the model's answer, so it must not enter the chat.
+ * @param {object|undefined} response Responses API body
+ * @returns {object|null} Anthropic error body
+ */
+export function contentFilterError(response) {
+    if (response?.incomplete_details?.reason !== 'content_filter') return null;
+    const hits = [];
+    for (const filter of response.content_filters || []) {
+        const source = filter?.source_type === 'prompt' ? 'prompt' : 'reply';
+        for (const [name, result] of Object.entries(filter?.content_filter_results || {})) {
+            if (result?.filtered) hits.push(`${name} (${source}, ${result.severity || 'detected'})`);
+        }
+    }
+    return anthropicError(
+        'invalid_request_error',
+        `Azure content filter blocked this request: ${hits.join(', ') || 'no category given'}. Raise the deployment's content filter threshold in Foundry, or rephrase.`
+    );
+}
 
 /**
  * @param {object|undefined} usage
@@ -303,16 +328,23 @@ function publicUsage(usage) {
  */
 export function translateResponsesBody(body, ctx) {
     const content = [];
-    let hasTool = false;
+    const tools = [];
+    let visible = '';
     for (const item of body?.output || []) {
+        if (item?.type === 'reasoning') continue;
         if (item?.type === 'message') {
-            const text = (item.content || []).map((part) => part?.text || '').join('');
-            if (text) content.push({ type: 'text', text });
+            visible += (item.content || []).map((part) => part?.text || '').join('');
         } else if (item?.type === 'function_call') {
-            hasTool = true;
-            content.push(responseToolUse(item, ctx.restoreName));
+            tools.push(responseToolUse(item, ctx.restoreName));
         }
     }
+    if (tools.length > 0 && visible.trim()) {
+        content.push({ type: 'thinking', thinking: visible.trim(), signature: PREAMBLE_SIGNATURE });
+    } else if (visible) {
+        content.push({ type: 'text', text: visible });
+    }
+    content.push(...tools);
+    const hasTool = tools.length > 0;
     if (content.length === 0) content.push({ type: 'text', text: '' });
     const usage = mapUsage(body?.usage);
     return {
@@ -339,25 +371,28 @@ export async function* responsesEventsToAnthropic(chunks, ctx) {
     const messageId = `msg_${crypto.randomBytes(16).toString('hex')}`;
     let started = false;
     let blockIndex = -1;
-    let textOpen = false;
+    let buffered = '';
     let usage = mapUsage(null);
     /** @type {Map<string, { id: string, name: string, fragments: string[] }>} */
     const tools = new Map();
     /** @type {object[]|null} */
     let finalOutput = null;
+    let finalResponse = null;
     /** @type {object[]} */
     const doneItems = [];
     let traced = false;
 
     const keepTrace = (output) => {
-        if (traced || !ctx.onTrace) return;
+        if (traced) return;
         const trace = traceFromOutput(output);
-        if (!trace) return;
+        const items = reasoningItemsFromOutput(output);
+        if (!trace && !items.length) return;
         traced = true;
         try {
-            ctx.onTrace(trace);
+            if (trace) ctx.onTrace?.(trace);
+            if (items.length) ctx.onItems?.(items);
         } catch {
-            // A cache write failure leaves the next turn on the old path.
+            // A cache write failure leaves the next turn on the transcript path.
         }
     };
 
@@ -385,21 +420,7 @@ export async function* responsesEventsToAnthropic(chunks, ctx) {
             assignUsageBox(ctx.usageBox, usage);
         }
         if (chunk?.type === 'response.output_text.delta' && chunk.delta) {
-            yield* openMessage();
-            if (!textOpen) {
-                blockIndex += 1;
-                textOpen = true;
-                yield {
-                    type: 'content_block_start',
-                    index: blockIndex,
-                    content_block: { type: 'text', text: '' }
-                };
-            }
-            yield {
-                type: 'content_block_delta',
-                index: blockIndex,
-                delta: { type: 'text_delta', text: chunk.delta }
-            };
+            buffered += chunk.delta;
         }
         if (chunk?.type === 'response.output_item.added' && chunk.item?.type === 'function_call') {
             const key = String(chunk.output_index ?? chunk.item.id ?? tools.size);
@@ -419,16 +440,54 @@ export async function* responsesEventsToAnthropic(chunks, ctx) {
             if (Number.isInteger(index) && index >= 0) doneItems[index] = chunk.item;
             else doneItems.push(chunk.item);
         }
-        if ((chunk?.type === 'response.completed' || chunk?.type === 'response.incomplete') && Array.isArray(chunk.response?.output)) {
-            finalOutput = chunk.response.output;
-            keepTrace(finalOutput);
+        if (chunk?.type === 'response.completed' || chunk?.type === 'response.incomplete') {
+            finalResponse = chunk.response;
+            if (Array.isArray(chunk.response?.output)) {
+                finalOutput = chunk.response.output;
+                keepTrace(finalOutput);
+            }
         }
     }
     if (!traced) keepTrace(finalOutput || doneItems.filter(Boolean));
 
-    if (textOpen) {
+    const blocked = contentFilterError(finalResponse);
+    if (blocked) {
+        yield blocked;
+        return;
+    }
+
+    if (buffered.trim()) {
+        yield* openMessage();
+        blockIndex += 1;
+        if (tools.size > 0) {
+            yield {
+                type: 'content_block_start',
+                index: blockIndex,
+                content_block: { type: 'thinking', thinking: '' }
+            };
+            yield {
+                type: 'content_block_delta',
+                index: blockIndex,
+                delta: { type: 'thinking_delta', thinking: buffered.trim() }
+            };
+            yield {
+                type: 'content_block_delta',
+                index: blockIndex,
+                delta: { type: 'signature_delta', signature: PREAMBLE_SIGNATURE }
+            };
+        } else {
+            yield {
+                type: 'content_block_start',
+                index: blockIndex,
+                content_block: { type: 'text', text: '' }
+            };
+            yield {
+                type: 'content_block_delta',
+                index: blockIndex,
+                delta: { type: 'text_delta', text: buffered }
+            };
+        }
         yield { type: 'content_block_stop', index: blockIndex };
-        textOpen = false;
     }
     for (const state of tools.values()) {
         yield* openMessage();

@@ -17,8 +17,8 @@ import { SpendGuard } from './spend-guard.js';
 import { readSseJson } from './sse.js';
 import { buildNameMap, collectToolNames } from './tool-names.js';
 import { capOutputTokens, translateAnthropicRequest } from './translate-request.js';
-import { createReasoningCache, traceFromOutput } from './reasoning-trace.js';
-import { chatChunksToAnthropicEvents, responsesEventsToAnthropic, translateChatResponse, translateResponsesBody } from './translate-response.js';
+import { createReasoningCache, reasoningItemsFromOutput, traceFromOutput } from './reasoning-trace.js';
+import { chatChunksToAnthropicEvents, contentFilterError, responsesEventsToAnthropic, translateChatResponse, translateResponsesBody } from './translate-response.js';
 
 /**
  * @param {object} options
@@ -327,9 +327,11 @@ async function handleMessages(req, res, ctx) {
                     model: String(body.model),
                     restoreName: (name) => nameMap.restore(name),
                     usageBox,
-                    onTrace: (trace) => ctx.reasoningCache.save(trace)
+                    onTrace: (trace) => ctx.reasoningCache.save(trace),
+                    onItems: (items) => ctx.reasoningCache.saveItems(items)
                 })) {
                     if (res.writableEnded) break;
+                    if (event.type === 'error') ctx.log.warn(`[azure] ${event.error.message}`);
                     res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
                 }
             } catch (error) {
@@ -358,7 +360,18 @@ async function handleMessages(req, res, ctx) {
             }
             return;
         }
-        if (translated.api === 'responses') ctx.reasoningCache.save(traceFromOutput(json.output));
+        if (translated.api === 'responses') {
+            const blocked = contentFilterError(json);
+            if (blocked) {
+                await finishSpend(Number(json.usage?.total_tokens) || 0);
+                ctx.log.warn(`[azure] ${blocked.error.message}`);
+                await save(400);
+                if (!res.writableEnded) res.status(400).json(blocked);
+                return;
+            }
+            ctx.reasoningCache.save(traceFromOutput(json.output));
+            ctx.reasoningCache.saveItems(reasoningItemsFromOutput(json.output));
+        }
         const { anthropic, totalTokens, meters } = (translated.api === 'responses' ? translateResponsesBody : translateChatResponse)(json, {
             model: String(body.model),
             restoreName: (name) => nameMap.restore(name)

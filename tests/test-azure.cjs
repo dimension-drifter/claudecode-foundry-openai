@@ -885,7 +885,7 @@ test('gpt-6 tool calls use the Responses API and keep reasoning on', async () =>
             path: '/v1/messages',
             body: {
                 ...userMessage('hello'),
-                thinking: { type: 'enabled', budget_tokens: 16000 },
+                thinking: { type: 'enabled', budget_tokens: 64000 },
                 tools: [{ name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } }]
             }
         });
@@ -894,20 +894,22 @@ test('gpt-6 tool calls use the Responses API and keep reasoning on', async () =>
         const sent = harness.mock.requests[0];
         assert.equal(sent.url, '/openai/v1/responses');
         assert.equal(sent.json.reasoning.effort, 'medium');
-        assert.equal(sent.json.reasoning.context, 'all_turns');
+        assert.equal(sent.json.reasoning.context, 'current_turn');
+        assert.equal(sent.json.reasoning.summary, undefined);
         assert.equal(sent.json.store, false);
         assert.deepEqual(sent.json.include, ['reasoning.encrypted_content']);
         assert.equal(sent.json.reasoning_effort, undefined);
         assert.equal(sent.json.max_output_tokens, 16128);
         assert.equal(sent.json.tools[0].name, 'Read');
         assert.equal(sent.json.tools[0].function, undefined);
+        assert.equal(sent.json.tools[0].strict, false);
         assertClean(response.text, 'responses reply');
     } finally {
         await harness.close();
     }
 });
 
-test('gpt-6 replays encrypted reasoning through the tool loop and into the next question', async () => {
+test('gpt-6 replays encrypted reasoning only inside the current question', async () => {
     const readTool = { name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } };
     const rounds = [];
     const harness = await makeHarness({
@@ -1071,12 +1073,170 @@ test('gpt-6 replays encrypted reasoning through the tool loop and into the next 
         });
         assert.equal(fourth.status, 200);
         const drafted = harness.mock.requests[3].json.input;
-        assert.deepEqual(
-            drafted.filter((item) => item.type === 'reasoning').map((item) => item.encrypted_content),
-            ['enc-trace-1', 'enc-trace-2']
-        );
+        assert.equal(drafted.some((item) => item.type === 'reasoning'), false);
         assert.equal(drafted.at(-1).content, 'draft it');
         assert.equal(harness.logs.join('\n').includes('enc-trace-1'), false);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('a status line shown as thinking goes back to GPT as its own commentary', async () => {
+    const harness = await makeHarness({
+        deployment: 'gpt-6-luna',
+        onRequest: async (_record, res) => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }],
+                usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 }
+            }));
+        }
+    });
+    try {
+        const response = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                model: 'claude-sonnet-4-6',
+                max_tokens: 128,
+                tools: [{ name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } }],
+                messages: [
+                    { role: 'user', content: [{ type: 'text', text: 'scout' }] },
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'thinking', thinking: 'old plan', signature: `enc-${'b'.repeat(40)}` },
+                            { type: 'thinking', thinking: 'Memory loaded. Checking the reply log.', signature: 'preamble' },
+                            { type: 'tool_use', id: 'call_1', name: 'Read', input: { path: 'Reply-Log.md' } }
+                        ]
+                    },
+                    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'empty' }] }
+                ]
+            }
+        });
+        assert.equal(response.status, 200);
+        const input = harness.mock.requests[0].json.input;
+        assert.deepEqual(input[1], { role: 'assistant', content: 'Memory loaded. Checking the reply log.', phase: 'commentary' });
+        assert.equal(input[2].type, 'function_call');
+        assert.equal(JSON.stringify(input).includes('old plan'), false);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('a Foundry content filter block is an error, not a refusal in the chat', async () => {
+    const refusal = "I'm sorry, but I cannot assist with that request.";
+    const filtered = {
+        status: 'incomplete',
+        incomplete_details: { reason: 'content_filter' },
+        content_filters: [{
+            blocked: true,
+            source_type: 'prompt',
+            content_filter_results: { hate: { filtered: true, severity: 'low' }, sexual: { filtered: false, severity: 'safe' } }
+        }],
+        output: [{ type: 'message', phase: 'final_answer', content: [{ type: 'output_text', text: refusal }] }],
+        usage: { input_tokens: 50, output_tokens: 12, total_tokens: 62 }
+    };
+    const harness = await makeHarness({
+        deployment: 'gpt-6-luna',
+        onRequest: async (record, res) => {
+            if (record.json.stream) {
+                res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+                res.end([
+                    sse({ type: 'response.output_text.delta', delta: refusal }),
+                    sse({ type: 'response.incomplete', response: filtered })
+                ].join(''));
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(filtered));
+        }
+    });
+    const body = {
+        ...userMessage('write something else. this is shit'),
+        tools: [{ name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } }]
+    };
+    try {
+        const streamed = await request({ port: harness.proxy.port, path: '/v1/messages', body: { ...body, stream: true } });
+        assert.equal(streamed.status, 200);
+        assert.equal(streamed.text.includes(refusal), false);
+        const events = parseSse(streamed.text);
+        assert.equal(events.length, 1);
+        assert.equal(events[0].type, 'error');
+        assert.equal(events[0].error.type, 'invalid_request_error');
+        assert.match(events[0].error.message, /content filter/);
+        assert.match(events[0].error.message, /hate \(prompt, low\)/);
+
+        const plain = await request({ port: harness.proxy.port, path: '/v1/messages', body });
+        assert.equal(plain.status, 400);
+        assert.equal(plain.text.includes(refusal), false);
+        assert.match(JSON.parse(plain.text).error.message, /hate \(prompt, low\)/);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('stored scratchpads are not copied into the chat or reread on the next question', async () => {
+    const signature = `enc-from-chat-${'a'.repeat(40)}`;
+    const harness = await makeHarness({
+        deployment: 'gpt-6-luna',
+        maxOutputTokens: 128000,
+        onRequest: async (_record, res) => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                output: [
+                    {
+                        type: 'reasoning',
+                        id: 'rs_round',
+                        summary: [{ type: 'summary_text', text: 'separate the harness from the tools' }],
+                        encrypted_content: signature
+                    },
+                    { type: 'message', content: [{ type: 'output_text', text: 'slate' }] }
+                ],
+                usage: { input_tokens: 12, output_tokens: 4, total_tokens: 16 }
+            }));
+        }
+    });
+    try {
+        const first = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                ...userMessage('scout'),
+                tools: [{ name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } }]
+            }
+        });
+        assert.equal(first.status, 200);
+        const firstBody = JSON.parse(first.text);
+        assert.equal(firstBody.content[0].type, 'text');
+        assert.equal(firstBody.content[0].text, 'slate');
+        assert.equal(first.text.includes(signature), false);
+
+        const second = await request({
+            port: harness.proxy.port,
+            path: '/v1/messages',
+            body: {
+                model: 'claude-sonnet-4-6',
+                max_tokens: 128,
+                tools: [{ name: 'Read', description: 'read', input_schema: { type: 'object', properties: {} } }],
+                messages: [
+                    { role: 'user', content: [{ type: 'text', text: 'scout' }] },
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'thinking', thinking: 'old plan', signature },
+                            { type: 'text', text: 'slate' }
+                        ]
+                    },
+                    { role: 'user', content: [{ type: 'text', text: 'draft option 2' }] }
+                ]
+            }
+        });
+        assert.equal(second.status, 200);
+        const input = harness.mock.requests[1].json.input;
+        assert.equal(input.some((item) => item.type === 'reasoning'), false);
+        assert.equal(JSON.stringify(input).includes(signature), false);
+        assert.equal(input.at(-1).content, 'draft option 2');
     } finally {
         await harness.close();
     }

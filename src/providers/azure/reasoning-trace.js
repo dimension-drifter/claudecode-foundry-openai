@@ -5,6 +5,7 @@
  * Claude Code has no field for this blob, so it stays on disk keyed by call id.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -68,6 +69,20 @@ export function traceFromOutput(output) {
 }
 
 /**
+ * @param {object[]|undefined} output
+ * @returns {object[]}
+ */
+export function reasoningItemsFromOutput(output) {
+    if (!Array.isArray(output)) return [];
+    const items = [];
+    for (const item of output) {
+        const replay = replayReasoningItem(item);
+        if (replay) items.push(replay);
+    }
+    return items;
+}
+
+/**
  * @param {string} directory
  */
 export function createReasoningCache(directory) {
@@ -80,8 +95,28 @@ export function createReasoningCache(directory) {
         return path.join(directory, `${safe}.json`);
     }
 
+    function encFile(encrypted) {
+        const hash = crypto.createHash('sha256').update(encrypted).digest('hex').slice(0, 32);
+        return path.join(directory, `e-${hash}.json`);
+    }
+
+    function writeJson(file, body) {
+        const tmp = `${file}.${process.pid}.tmp`;
+        fs.writeFileSync(tmp, body, { encoding: 'utf8', mode: 0o600 });
+        try {
+            if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+            fs.renameSync(tmp, file);
+        } catch {
+            fs.writeFileSync(file, body, { encoding: 'utf8', mode: 0o600 });
+            fs.rmSync(tmp, { force: true });
+        }
+    }
+
     function remember(trace) {
         for (const callId of trace.callIds || []) memory.set(callId, trace);
+        for (const item of trace.items || []) {
+            if (item?.encrypted_content) memory.set(`enc:${item.encrypted_content}`, item);
+        }
     }
 
     function fresh(trace) {
@@ -101,18 +136,25 @@ export function createReasoningCache(directory) {
             const body = JSON.stringify(stored);
             for (const callId of stored.callIds) {
                 const file = fileFor(callId);
-                if (!file) continue;
-                const tmp = `${file}.${process.pid}.tmp`;
-                fs.writeFileSync(tmp, body, { encoding: 'utf8', mode: 0o600 });
-                try {
-                    if (fs.existsSync(file)) fs.rmSync(file, { force: true });
-                    fs.renameSync(tmp, file);
-                } catch {
-                    fs.writeFileSync(file, body, { encoding: 'utf8', mode: 0o600 });
-                    fs.rmSync(tmp, { force: true });
-                }
+                if (file) writeJson(file, body);
+            }
+            for (const item of stored.items) {
+                if (item?.encrypted_content) writeJson(encFile(item.encrypted_content), JSON.stringify({ item, savedAt: stored.savedAt }));
             }
             prune(directory);
+        },
+        /**
+         * Text-only turns have a scratchpad and no tool id.
+         * @param {object[]} items
+         */
+        saveItems(items) {
+            if (!Array.isArray(items) || !items.length) return;
+            const stored = { callIds: [], items, savedAt: Date.now() };
+            remember(stored);
+            fs.mkdirSync(directory, { recursive: true });
+            for (const item of items) {
+                if (item?.encrypted_content) writeJson(encFile(item.encrypted_content), JSON.stringify({ item, savedAt: stored.savedAt }));
+            }
         },
         /**
          * @param {string[]} callIds
@@ -140,6 +182,31 @@ export function createReasoningCache(directory) {
                 }
             }
             return null;
+        },
+        /**
+         * Original reasoning item for a scratchpad Claude Code sent back.
+         * @param {string} encrypted
+         * @returns {object|null}
+         */
+        lookupEncrypted(encrypted) {
+            if (typeof encrypted !== 'string' || !encrypted) return null;
+            const key = `enc:${encrypted}`;
+            const cached = memory.get(key);
+            if (cached?.encrypted_content) return cached;
+            const file = encFile(encrypted);
+            if (!fs.existsSync(file)) return null;
+            try {
+                const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+                if (!parsed?.item?.encrypted_content) return null;
+                if (Date.now() - Number(parsed.savedAt || 0) >= TTL_MS) {
+                    fs.rmSync(file, { force: true });
+                    return null;
+                }
+                memory.set(key, parsed.item);
+                return parsed.item;
+            } catch {
+                return null;
+            }
         }
     };
 }

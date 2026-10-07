@@ -6,6 +6,7 @@
 
 import crypto from 'crypto';
 import { sanitizeSchema } from './schema.js';
+import { PREAMBLE_SIGNATURE } from './translate-response.js';
 
 /**
  * Versioned Anthropic server tools have a type other than custom/function.
@@ -144,17 +145,10 @@ export function responsesOutputLimit(visible, thinking, ceiling) {
     const cap = Math.max(1, Math.floor(ceiling) || 1);
     const asked = Math.max(1, Math.floor(visible) || 1);
     const type = thinking?.type;
-    let reserve = 16000;
-    if (type === 'disabled' || type === 'off') reserve = 0;
-    else {
-        const budget = Number(thinking?.budget_tokens);
-        if (Number.isFinite(budget) && budget > 0) reserve = Math.floor(budget);
-    }
-    return Math.min(cap, asked + reserve);
+    if (type === 'disabled' || type === 'off') return Math.min(cap, asked);
+    // Fixed room for the hidden plan. Do not add Claude's whole thinking budget.
+    return Math.min(cap, asked + 16000);
 }
-
-/** Prior-turn scratchpads kept for all_turns, in characters of encrypted text. */
-const PRIOR_ENCRYPTED_CHARS = 80000;
 
 /**
  * Tool results are role "tool", so the last role "user" text is the question
@@ -198,17 +192,8 @@ function assistantTrace(message, lookup) {
 }
 
 /**
- * @param {object|null} trace
- * @returns {number}
- */
-function encryptedSize(trace) {
-    return (trace?.items || []).reduce((sum, item) => sum + String(item.encrypted_content || '').length, 0);
-}
-
-/**
- * Current tool loop is always replayed. Older scratchpads are replayed newest
- * first until the character budget, so a follow-up question still has the plan
- * and a long session does not resend every prior turn.
+ * Only the tool steps after the latest user text. Older questions stay in the
+ * written chat. Their scratchpads are not sent again.
  * @param {object[]} messages
  * @param {(callIds: string[]) => object|null} [lookup]
  * @returns {Set<number>}
@@ -219,16 +204,6 @@ function tracesToReplay(messages, lookup) {
     const lastUser = lastUserTextIndex(messages);
     for (let index = lastUser + 1; index < messages.length; index += 1) {
         if (assistantTrace(messages[index], lookup)) selected.add(index);
-    }
-    let used = 0;
-    for (let index = lastUser - 1; index >= 0; index -= 1) {
-        const trace = assistantTrace(messages[index], lookup);
-        if (!trace) continue;
-        const size = encryptedSize(trace);
-        if (used > 0 && used + size > PRIOR_ENCRYPTED_CHARS) break;
-        selected.add(index);
-        used += size;
-        if (used >= PRIOR_ENCRYPTED_CHARS) break;
     }
     return selected;
 }
@@ -260,8 +235,9 @@ export function chatPayloadToResponses(chat, effort, lookup) {
         }
         if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
             const trace = replay.has(index) ? assistantTrace(message, lookup) : null;
-            const text = message.content ? { role: 'assistant', content: message.content } : null;
-            const calls = message.tool_calls.map((call) => {
+            const reasoning = trace?.items || [];
+            const text = message.content ? { role: 'assistant', content: message.content, phase: 'commentary' } : null;
+            const calls = (message.tool_calls || []).map((call) => {
                 const item = {
                     type: 'function_call',
                     call_id: call.id,
@@ -272,9 +248,8 @@ export function chatPayloadToResponses(chat, effort, lookup) {
                 if (itemId) item.id = itemId;
                 return item;
             });
-            if (trace?.lead === 'text' && text) input.push(text);
-            if (trace?.items) input.push(...trace.items);
-            if (trace?.lead !== 'text' && text) input.push(text);
+            if (reasoning.length) input.push(...reasoning);
+            if (text) input.push(text);
             input.push(...calls);
             continue;
         }
@@ -291,20 +266,24 @@ export function chatPayloadToResponses(chat, effort, lookup) {
     };
     if (instructions.length > 0) payload.instructions = instructions.join('\n\n');
     if (Array.isArray(chat.tools) && chat.tools.length > 0) {
+        // Responses tools default to strict, which makes every optional
+        // argument required, so GPT sends `pages: ""` to Read and picks
+        // run_in_background for every Agent call.
         payload.tools = chat.tools.map((tool) => ({
             type: 'function',
             name: tool.function.name,
             description: tool.function.description || '',
-            parameters: tool.function.parameters
+            parameters: tool.function.parameters,
+            strict: false
         }));
         if (chat.tool_choice) payload.tool_choice = responsesToolChoice(chat.tool_choice);
     }
     if (chat.stream) payload.stream = true;
-    // Stateless, so Foundry returns encrypted reasoning. all_turns renders the
-    // scratchpads this request replays, including the previous question.
+    // current_turn keeps the scratchpad available for this tool loop without
+    // rendering every older plan into the billed context.
     payload.store = false;
     payload.include = ['reasoning.encrypted_content'];
-    payload.reasoning = { context: 'all_turns' };
+    payload.reasoning = { context: 'current_turn' };
     if (effort) payload.reasoning.effort = effort;
     return payload;
 }
@@ -352,6 +331,7 @@ export function selectReasoningEffort(deployment, body, hasTools, explicit) {
     const reasoningModel = name.includes('gpt-6') || name.includes('gpt-5') || /(^|[^a-z])o[134]([^a-z]|$)/.test(name);
     if (!reasoningModel) return undefined;
     if (hasTools && name.includes('gpt-5.6')) return 'none';
+    if (hasTools && name.includes('gpt-6')) return 'medium';
     const thinking = body?.thinking;
     if (thinking && (thinking.type === 'disabled' || thinking.type === 'off')) return 'none';
     if (!thinking) return undefined;
@@ -486,6 +466,12 @@ function convertMessages(anthropicMessages, nameMap, omittedNames) {
             const images = [];
             const toolCalls = [];
             for (const block of blocks) {
+                // A status line is GPT's own text, shown as thinking. Without it
+                // the model repeats its opening line before every tool call.
+                if (block.type === 'thinking' && block.signature === PREAMBLE_SIGNATURE) {
+                    if (typeof block.thinking === 'string' && block.thinking) textParts.push(block.thinking);
+                    continue;
+                }
                 if (block.type === 'thinking' || block.type === 'redacted_thinking') continue;
                 if (block.type === 'tool_use') {
                     const name = String(block.name || 'tool');
