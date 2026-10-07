@@ -114,7 +114,7 @@ export function resolveSettings(options = {}) {
             options.dailyTokenCeiling,
             env.AZURE_DAILY_TOKEN_CEILING,
             fileConfig.dailyTokenCeiling,
-            20000000,
+            50000000,
             0,
             1000000000000,
             'AZURE_DAILY_TOKEN_CEILING'

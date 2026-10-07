@@ -9,5 +9,5 @@
   "fable": "your-deployment-name",
   "reasoningEffort": "",
   "maxOutputTokens": 128000,
-  "dailyTokenCeiling": 20000000
+  "dailyTokenCeiling": 50000000
 }

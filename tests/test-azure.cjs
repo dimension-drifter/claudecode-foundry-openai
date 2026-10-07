@@ -1148,7 +1148,7 @@ test('Foundry mode refuses a non-loopback bind', async () => {
         allowHosts: [ALLOWED_HOST],
         dataDir: tmpDir()
     });
-    assert.equal(settings.dailyTokenCeiling, 20000000);
+    assert.equal(settings.dailyTokenCeiling, 50000000);
 });
 
 test('gpt-6-luna cache writes are priced once and reasoning stays inside output', async () => {

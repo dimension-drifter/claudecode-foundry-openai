@@ -54,7 +54,7 @@ Optional variables:
 | Variable | Default |
 | --- | --- |
 | `AZURE_PORT` | `8081` |
-| `AZURE_DAILY_TOKEN_CEILING` | `20000000` tokens per UTC day |
+| `AZURE_DAILY_TOKEN_CEILING` | `50000000` tokens per UTC day |
 | `AZURE_MAX_OUTPUT_TOKENS` | `128000` |
 | `AZURE_REASONING_EFFORT` | empty; the request's effort is used |
 | `API_KEY` | empty; set it only to require a bearer token on this proxy |
